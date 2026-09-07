@@ -13,6 +13,13 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Mauiza backend is running'
+  });
+});
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
