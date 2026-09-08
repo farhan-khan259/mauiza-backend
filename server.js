@@ -53,6 +53,7 @@ const registrationSchema = new mongoose.Schema({
   fullName: String,
   email: String,
   phone: String,
+  country: String,
   ageGroup: String,
   gender: String,
   course: String,
@@ -158,6 +159,7 @@ app.post('/api/registration', async (req, res) => {
       fullName,
       email,
       phone,
+      country,
       ageGroup,
       gender,
       course,
@@ -170,7 +172,7 @@ app.post('/api/registration', async (req, res) => {
 
     const cleanedFullName = fullName || name || '';
 
-    if (!cleanedFullName || !email || !phone || !ageGroup || !gender || !course) {
+    if (!cleanedFullName || !email || !phone || !country || !ageGroup || !gender || !course) {
       return res.status(400).json({ message: 'Please complete all required registration fields.' });
     }
 
@@ -178,6 +180,7 @@ app.post('/api/registration', async (req, res) => {
       fullName: cleanedFullName,
       email,
       phone,
+      country,
       ageGroup,
       gender,
       course,
@@ -191,6 +194,7 @@ app.post('/api/registration', async (req, res) => {
       `Full Name: ${cleanedFullName}`,
       `Email: ${email}`,
       `WhatsApp Number: ${phone}`,
+      `Country: ${country}`,
       `Age Group: ${ageGroup}`,
       `Gender: ${gender}`,
       `Course: ${course}`,
@@ -209,6 +213,7 @@ app.post('/api/registration', async (req, res) => {
           <p><strong>Full Name:</strong> ${cleanedFullName}</p>
           <p><strong>Email:</strong> ${email}</p>
           <p><strong>WhatsApp Number:</strong> ${phone}</p>
+          <p><strong>Country:</strong> ${country}</p>
           <p><strong>Age Group:</strong> ${ageGroup}</p>
           <p><strong>Gender:</strong> ${gender}</p>
           <p><strong>Course:</strong> ${course}</p>
