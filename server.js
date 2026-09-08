@@ -105,37 +105,42 @@ app.post('/api/contact', async (req, res) => {
   try {
     const { name, email, subject, message } = req.body;
 
-    if (!name || !email || !subject || !message) {
+    if ([name, email, subject, message].some((value) => typeof value !== 'string' || !value.trim())) {
       return res.status(400).json({ message: 'All contact fields are required.' });
     }
 
+    const cleanedName = name.trim();
+    const cleanedEmail = email.trim();
+    const cleanedSubject = subject.trim();
+    const cleanedMessage = message.trim();
+
     const saved = await ContactMessage.create({
-      name,
-      email,
-      subject,
-      message
+      name: cleanedName,
+      email: cleanedEmail,
+      subject: cleanedSubject,
+      message: cleanedMessage
     });
 
     const emailText = [
-      `Name: ${name}`,
-      `Email: ${email}`,
-      `Subject: ${subject}`,
+      `Name: ${cleanedName}`,
+      `Email: ${cleanedEmail}`,
+      `Subject: ${cleanedSubject}`,
       '',
       'Message:',
-      message
+      cleanedMessage
     ].join('\n');
 
     const emailSent = await sendAdminMail({
-      subject: `New contact message: ${subject}`,
+      subject: `New contact message: ${cleanedSubject}`,
       text: emailText,
       html: `
         <div style="font-family: Arial, sans-serif; line-height: 1.6;">
           <h3>New Contact Message</h3>
-          <p><strong>Name:</strong> ${name}</p>
-          <p><strong>Email:</strong> ${email}</p>
-          <p><strong>Subject:</strong> ${subject}</p>
+          <p><strong>Name:</strong> ${cleanedName}</p>
+          <p><strong>Email:</strong> ${cleanedEmail}</p>
+          <p><strong>Subject:</strong> ${cleanedSubject}</p>
           <p><strong>Message:</strong></p>
-          <p>${message.replace(/\n/g, '<br />')}</p>
+          <p>${cleanedMessage.replace(/\n/g, '<br />')}</p>
         </div>
       `
     });
@@ -172,22 +177,34 @@ app.post('/api/registration', async (req, res) => {
 
     const cleanedFullName = fullName || name || '';
 
-    if (!cleanedFullName || !email || !phone || !country || !ageGroup || !gender || !course) {
+    if ([cleanedFullName, email, phone, country, ageGroup, gender, course, startTime, endTime, goals]
+      .some((value) => typeof value !== 'string' || !value.trim())) {
       return res.status(400).json({ message: 'Please complete all required registration fields.' });
     }
 
+    const cleanedEmail = email.trim();
+    const cleanedPhone = phone.trim();
+    const cleanedCountry = country.trim();
+    const cleanedAgeGroup = ageGroup.trim();
+    const cleanedGender = gender.trim();
+    const cleanedCourse = course.trim();
+    const cleanedStartTime = startTime.trim();
+    const cleanedEndTime = endTime.trim();
+    const cleanedSchedule = schedule?.trim();
+    const cleanedGoals = goals.trim();
+
     const saved = await RegistrationEntry.create({
       fullName: cleanedFullName,
-      email,
-      phone,
-      country,
-      ageGroup,
-      gender,
-      course,
-      startTime,
-      endTime,
-      schedule,
-      goals
+      email: cleanedEmail,
+      phone: cleanedPhone,
+      country: cleanedCountry,
+      ageGroup: cleanedAgeGroup,
+      gender: cleanedGender,
+      course: cleanedCourse,
+      startTime: cleanedStartTime,
+      endTime: cleanedEndTime,
+      schedule: cleanedSchedule,
+      goals: cleanedGoals
     });
 
     const emailText = [
