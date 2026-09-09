@@ -9,9 +9,8 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 const allowedOrigins = [
-  'https://mauiza.onrender.com',
-  'http://localhost:5173',
-  'http://localhost:4173'
+  'https://mauiza.com',
+  'https://www.mauiza.com'
 ];
 
 app.use(cors({
