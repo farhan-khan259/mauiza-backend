@@ -67,8 +67,26 @@ const registrationSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+const volunteerSchema = new mongoose.Schema({
+  fullName: String,
+  email: String,
+  phone: String,
+  country: String,
+  profession: String,
+  designation: String,
+  instructionLanguage: String,
+  availability: String,
+  availabilityDetails: String,
+  goals: String,
+  islamicEducation: String,
+  skills: String,
+  tiktokAccount: String,
+  createdAt: { type: Date, default: Date.now }
+});
+
 const ContactMessage = mongoose.model('ContactMessage', contactSchema);
 const RegistrationEntry = mongoose.model('RegistrationEntry', registrationSchema);
+const VolunteerEntry = mongoose.model('VolunteerEntry', volunteerSchema);
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -268,6 +286,72 @@ app.post('/api/registration', async (req, res) => {
   } catch (error) {
     console.error('Registration failed:', error);
     res.status(500).json({ message: 'Failed to submit the registration.' });
+  }
+});
+
+app.post('/api/volunteers', async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: 'Volunteer applications are temporarily unavailable because the database is not connected.' });
+    }
+
+    const {
+      fullName, email, phone, country, profession, designation,
+      instructionLanguage, availability, availabilityDetails, goals,
+      islamicEducation, skills, tiktokAccount
+    } = req.body;
+    const allowedDesignations = ['Teacher', 'Video Editor', 'Media Manager'];
+    const commonFields = [fullName, email, phone, country, profession, designation, instructionLanguage, availability, goals];
+
+    if (commonFields.some((value) => typeof value !== 'string' || !value.trim()) || !allowedDesignations.includes(designation)) {
+      return res.status(400).json({ message: 'Please complete all required volunteer fields.' });
+    }
+
+    const roleField = designation === 'Teacher' ? islamicEducation : designation === 'Video Editor' ? skills : tiktokAccount;
+    if (typeof roleField !== 'string' || !roleField.trim()) {
+      return res.status(400).json({ message: `Please complete the required ${designation} details.` });
+    }
+
+    const cleaned = Object.fromEntries(Object.entries({
+      fullName, email, phone, country, profession, designation,
+      instructionLanguage, availability, availabilityDetails, goals,
+      islamicEducation, skills, tiktokAccount
+    }).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : '']));
+
+    const saved = await VolunteerEntry.create(cleaned);
+    const emailText = [
+      'New Volunteer Application',
+      '',
+      `Full Name: ${cleaned.fullName}`,
+      `Email: ${cleaned.email}`,
+      `WhatsApp Number: ${cleaned.phone}`,
+      `Country: ${cleaned.country}`,
+      `Profession: ${cleaned.profession}`,
+      `Designation: ${cleaned.designation}`,
+      `Language of Instruction: ${cleaned.instructionLanguage}`,
+      `Availability: ${cleaned.availability}${cleaned.availabilityDetails ? ` (${cleaned.availabilityDetails})` : ''}`,
+      cleaned.islamicEducation ? `Islamic Education / Background: ${cleaned.islamicEducation}` : '',
+      cleaned.skills ? `Video Editing Skills: ${cleaned.skills}` : '',
+      cleaned.tiktokAccount ? `TikTok Account: ${cleaned.tiktokAccount}` : '',
+      `Goals: ${cleaned.goals}`,
+      '',
+      'Volunteer application saved in MongoDB.'
+    ].filter(Boolean).join('\n');
+
+    const emailSent = await sendAdminMail({
+      subject: `New volunteer application: ${cleaned.designation}`,
+      text: emailText,
+      html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${emailText.split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`).join('')}</div>`
+    });
+
+    res.status(201).json({
+      message: emailSent ? 'Volunteer application submitted successfully.' : 'Volunteer application saved successfully. Email notification is temporarily unavailable.',
+      emailSent,
+      data: saved
+    });
+  } catch (error) {
+    console.error('Volunteer application failed:', error);
+    res.status(500).json({ message: 'Failed to submit the volunteer application.' });
   }
 });
 
