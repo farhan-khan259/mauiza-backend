@@ -10,16 +10,32 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 const allowedOrigins = [
   'https://mauiza.com',
-  'https://www.mauiza.com'
+  'https://www.mauiza.com',
+  'https://mauiza-backend.onrender.com'
 ];
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin) {
       return callback(null, true);
     }
 
-    return callback(new Error('Origin is not allowed by CORS'));
+    try {
+      const hostname = new URL(origin).hostname;
+      const isAllowed = allowedOrigins.includes(origin)
+        || hostname === 'mauiza.com'
+        || hostname === 'www.mauiza.com'
+        || hostname.endsWith('.mauiza.com')
+        || hostname === 'mauiza-backend.onrender.com';
+
+      if (isAllowed) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Origin is not allowed by CORS'));
+    } catch (_error) {
+      return callback(new Error('Origin is not allowed by CORS'));
+    }
   },
   credentials: true
 }));
@@ -118,6 +134,15 @@ async function sendAdminMail({ subject, text, html }) {
   }
 }
 
+// A form submission must not be held up by an email provider. The database is
+// the source of truth; notifications are best-effort and run after the HTTP
+// response has been sent to the visitor.
+function notifyAdmin(mail) {
+  void sendAdminMail(mail).catch((error) => {
+    console.error('Admin email notification failed:', error.message);
+  });
+}
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, message: 'Mauiza backend is running' });
 });
@@ -151,7 +176,7 @@ app.post('/api/contact', async (req, res) => {
       cleanedMessage
     ].join('\n');
 
-    const emailSent = await sendAdminMail({
+    notifyAdmin({
       subject: `New contact message: ${cleanedSubject}`,
       text: emailText,
       html: `
@@ -167,10 +192,7 @@ app.post('/api/contact', async (req, res) => {
     });
 
     res.status(201).json({
-      message: emailSent
-        ? 'Your message has been sent successfully.'
-        : 'Your message was saved successfully. Email notification is temporarily unavailable.',
-      emailSent,
+      message: 'Your message has been sent successfully.',
       data: saved
     });
   } catch (error) {
@@ -254,7 +276,7 @@ app.post('/api/registration', async (req, res) => {
       'Registration details saved in MongoDB.'
     ].join('\n');
 
-    const emailSent = await sendAdminMail({
+    notifyAdmin({
       subject: `New registration: ${course}`,
       text: emailText,
       html: `
@@ -277,10 +299,7 @@ app.post('/api/registration', async (req, res) => {
     });
 
     res.status(201).json({
-      message: emailSent
-        ? 'Registration submitted successfully.'
-        : 'Registration saved successfully. Email notification is temporarily unavailable.',
-      emailSent,
+      message: 'Registration submitted successfully.',
       data: saved
     });
   } catch (error) {
@@ -361,7 +380,7 @@ app.post('/api/volunteers', async (req, res) => {
       'Volunteer application saved in MongoDB.'
     ].join('\n');
 
-    const emailSent = await sendAdminMail({
+    notifyAdmin({
       subject: `New volunteer application: ${cleaned.designation}`,
       text: emailText,
       html: `
@@ -382,8 +401,7 @@ app.post('/api/volunteers', async (req, res) => {
     });
 
     res.status(201).json({
-      message: emailSent ? 'Volunteer application submitted successfully.' : 'Volunteer application saved successfully. Email notification is temporarily unavailable.',
-      emailSent,
+      message: 'Volunteer application submitted successfully.',
       data: saved
     });
   } catch (error) {
