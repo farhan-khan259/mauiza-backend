@@ -56,6 +56,9 @@ const registrationSchema = new mongoose.Schema({
   country: String,
   ageGroup: String,
   gender: String,
+  timezone: String,
+  instructionLanguage: String,
+  faith: String,
   course: String,
   startTime: String,
   endTime: String,
@@ -167,6 +170,9 @@ app.post('/api/registration', async (req, res) => {
       country,
       ageGroup,
       gender,
+      timezone,
+      instructionLanguage,
+      faith,
       course,
       startTime,
       endTime,
@@ -177,7 +183,7 @@ app.post('/api/registration', async (req, res) => {
 
     const cleanedFullName = fullName || name || '';
 
-    if ([cleanedFullName, email, phone, country, ageGroup, gender, course, startTime, endTime, goals]
+    if ([cleanedFullName, email, phone, country, ageGroup, gender, timezone, instructionLanguage, faith, course, startTime, endTime, goals]
       .some((value) => typeof value !== 'string' || !value.trim())) {
       return res.status(400).json({ message: 'Please complete all required registration fields.' });
     }
@@ -187,6 +193,9 @@ app.post('/api/registration', async (req, res) => {
     const cleanedCountry = country.trim();
     const cleanedAgeGroup = ageGroup.trim();
     const cleanedGender = gender.trim();
+    const cleanedTimezone = timezone.trim();
+    const cleanedInstructionLanguage = instructionLanguage.trim();
+    const cleanedFaith = faith.trim();
     const cleanedCourse = course.trim();
     const cleanedStartTime = startTime.trim();
     const cleanedEndTime = endTime.trim();
@@ -200,6 +209,9 @@ app.post('/api/registration', async (req, res) => {
       country: cleanedCountry,
       ageGroup: cleanedAgeGroup,
       gender: cleanedGender,
+      timezone: cleanedTimezone,
+      instructionLanguage: cleanedInstructionLanguage,
+      faith: cleanedFaith,
       course: cleanedCourse,
       startTime: cleanedStartTime,
       endTime: cleanedEndTime,
@@ -214,6 +226,9 @@ app.post('/api/registration', async (req, res) => {
       `Country: ${country}`,
       `Age Group: ${ageGroup}`,
       `Gender: ${gender}`,
+      `Timezone: ${cleanedTimezone}`,
+      `Language of Instruction: ${cleanedInstructionLanguage}`,
+      `Faith: ${cleanedFaith}`,
       `Course: ${course}`,
       `Preferred Time: ${schedule || `${startTime || 'N/A'} - ${endTime || 'N/A'}`}`,
       `Learning Goals: ${goals || 'Not provided'}`,
@@ -233,6 +248,9 @@ app.post('/api/registration', async (req, res) => {
           <p><strong>Country:</strong> ${country}</p>
           <p><strong>Age Group:</strong> ${ageGroup}</p>
           <p><strong>Gender:</strong> ${gender}</p>
+          <p><strong>Timezone:</strong> ${cleanedTimezone}</p>
+          <p><strong>Language of Instruction:</strong> ${cleanedInstructionLanguage}</p>
+          <p><strong>Faith:</strong> ${cleanedFaith}</p>
           <p><strong>Course:</strong> ${course}</p>
           <p><strong>Preferred Time:</strong> ${schedule || `${startTime || 'N/A'} - ${endTime || 'N/A'}`}</p>
           <p><strong>Learning Goals:</strong> ${goals || 'Not provided'}</p>
