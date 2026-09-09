@@ -81,6 +81,7 @@ const volunteerSchema = new mongoose.Schema({
   islamicEducation: String,
   skills: String,
   tiktokAccount: String,
+  roleDetails: String,
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -291,31 +292,56 @@ app.post('/api/registration', async (req, res) => {
 
 app.post('/api/volunteers', async (req, res) => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({ message: 'Volunteer applications are temporarily unavailable because the database is not connected.' });
-    }
-
     const {
-      fullName, email, phone, country, profession, designation,
-      instructionLanguage, availability, availabilityDetails, goals,
-      islamicEducation, skills, tiktokAccount
+      fullName,
+      name,
+      email,
+      phone,
+      country,
+      profession,
+      designation,
+      instructionLanguage,
+      availability,
+      availabilityDetails,
+      goals,
+      islamicEducation,
+      skills,
+      tiktokAccount
     } = req.body;
+
+    const cleanedFullName = (fullName || name || '').trim();
     const allowedDesignations = ['Teacher', 'Video Editor', 'Media Manager'];
-    const commonFields = [fullName, email, phone, country, profession, designation, instructionLanguage, availability, goals];
+    const commonFields = [cleanedFullName, email, phone, country, profession, designation, instructionLanguage, availability, goals];
 
     if (commonFields.some((value) => typeof value !== 'string' || !value.trim()) || !allowedDesignations.includes(designation)) {
       return res.status(400).json({ message: 'Please complete all required volunteer fields.' });
     }
 
-    const roleField = designation === 'Teacher' ? islamicEducation : designation === 'Video Editor' ? skills : tiktokAccount;
+    const roleField = designation === 'Teacher'
+      ? islamicEducation
+      : designation === 'Video Editor'
+        ? skills
+        : tiktokAccount;
+
     if (typeof roleField !== 'string' || !roleField.trim()) {
       return res.status(400).json({ message: `Please complete the required ${designation} details.` });
     }
 
     const cleaned = Object.fromEntries(Object.entries({
-      fullName, email, phone, country, profession, designation,
-      instructionLanguage, availability, availabilityDetails, goals,
-      islamicEducation, skills, tiktokAccount
+      fullName: cleanedFullName,
+      email,
+      phone,
+      country,
+      profession,
+      designation,
+      instructionLanguage,
+      availability,
+      availabilityDetails,
+      goals,
+      islamicEducation,
+      skills,
+      tiktokAccount,
+      roleDetails: roleField
     }).map(([key, value]) => [key, typeof value === 'string' ? value.trim() : '']));
 
     const saved = await VolunteerEntry.create(cleaned);
@@ -330,18 +356,30 @@ app.post('/api/volunteers', async (req, res) => {
       `Designation: ${cleaned.designation}`,
       `Language of Instruction: ${cleaned.instructionLanguage}`,
       `Availability: ${cleaned.availability}${cleaned.availabilityDetails ? ` (${cleaned.availabilityDetails})` : ''}`,
-      cleaned.islamicEducation ? `Islamic Education / Background: ${cleaned.islamicEducation}` : '',
-      cleaned.skills ? `Video Editing Skills: ${cleaned.skills}` : '',
-      cleaned.tiktokAccount ? `TikTok Account: ${cleaned.tiktokAccount}` : '',
+      `${cleaned.designation === 'Teacher' ? 'Islamic Education / Background' : cleaned.designation === 'Video Editor' ? 'Video Editing Skills' : 'TikTok Account'}: ${cleaned.roleDetails}`,
       `Goals: ${cleaned.goals}`,
       '',
       'Volunteer application saved in MongoDB.'
-    ].filter(Boolean).join('\n');
+    ].join('\n');
 
     const emailSent = await sendAdminMail({
       subject: `New volunteer application: ${cleaned.designation}`,
       text: emailText,
-      html: `<div style="font-family: Arial, sans-serif; line-height: 1.6;">${emailText.split('\n').map((line) => `<p>${line || '&nbsp;'}</p>`).join('')}</div>`
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+          <h3>New Volunteer Application</h3>
+          <p><strong>Full Name:</strong> ${cleaned.fullName}</p>
+          <p><strong>Email:</strong> ${cleaned.email}</p>
+          <p><strong>WhatsApp Number:</strong> ${cleaned.phone}</p>
+          <p><strong>Country:</strong> ${cleaned.country}</p>
+          <p><strong>Profession:</strong> ${cleaned.profession}</p>
+          <p><strong>Designation:</strong> ${cleaned.designation}</p>
+          <p><strong>Language of Instruction:</strong> ${cleaned.instructionLanguage}</p>
+          <p><strong>Availability:</strong> ${cleaned.availability}${cleaned.availabilityDetails ? ` (${cleaned.availabilityDetails})` : ''}</p>
+          <p><strong>${cleaned.designation === 'Teacher' ? 'Islamic Education / Background' : cleaned.designation === 'Video Editor' ? 'Video Editing Skills' : 'TikTok Account'}:</strong> ${cleaned.roleDetails}</p>
+          <p><strong>Goals:</strong> ${cleaned.goals}</p>
+        </div>
+      `
     });
 
     res.status(201).json({
