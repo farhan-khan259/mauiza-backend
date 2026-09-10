@@ -90,6 +90,8 @@ const volunteerSchema = new mongoose.Schema({
   profession: String,
   designation: String,
   instructionLanguage: String,
+  startTime: String,
+  endTime: String,
   availability: String,
   availabilityDetails: String,
   goals: String,
@@ -319,6 +321,8 @@ app.post('/api/volunteers', async (req, res) => {
       profession,
       designation,
       instructionLanguage,
+      startTime,
+      endTime,
       availability,
       availabilityDetails,
       goals,
@@ -329,7 +333,7 @@ app.post('/api/volunteers', async (req, res) => {
 
     const cleanedFullName = (fullName || name || '').trim();
     const allowedDesignations = ['Teacher', 'Video Editor', 'Media Manager'];
-    const commonFields = [cleanedFullName, email, phone, country, profession, designation, instructionLanguage, availability, goals];
+    const commonFields = [cleanedFullName, email, phone, country, profession, designation, instructionLanguage, startTime, endTime, availability, goals];
 
     if (commonFields.some((value) => typeof value !== 'string' || !value.trim()) || !allowedDesignations.includes(designation)) {
       return res.status(400).json({ message: 'Please complete all required volunteer fields.' });
@@ -345,6 +349,10 @@ app.post('/api/volunteers', async (req, res) => {
       return res.status(400).json({ message: `Please complete the required ${designation} details.` });
     }
 
+    if (endTime <= startTime) {
+      return res.status(400).json({ message: 'Please choose a valid availability time range.' });
+    }
+
     const cleaned = Object.fromEntries(Object.entries({
       fullName: cleanedFullName,
       email,
@@ -353,6 +361,8 @@ app.post('/api/volunteers', async (req, res) => {
       profession,
       designation,
       instructionLanguage,
+      startTime,
+      endTime,
       availability,
       availabilityDetails,
       goals,
@@ -373,6 +383,8 @@ app.post('/api/volunteers', async (req, res) => {
       `Profession: ${cleaned.profession}`,
       `Designation: ${cleaned.designation}`,
       `Language of Instruction: ${cleaned.instructionLanguage}`,
+      `Available From: ${cleaned.startTime}`,
+      `Available To: ${cleaned.endTime}`,
       `Availability: ${cleaned.availability}${cleaned.availabilityDetails ? ` (${cleaned.availabilityDetails})` : ''}`,
       `${cleaned.designation === 'Teacher' ? 'Islamic Education / Background' : cleaned.designation === 'Video Editor' ? 'Video Editing Skills' : 'TikTok Account'}: ${cleaned.roleDetails}`,
       `Goals: ${cleaned.goals}`,
@@ -393,6 +405,8 @@ app.post('/api/volunteers', async (req, res) => {
           <p><strong>Profession:</strong> ${cleaned.profession}</p>
           <p><strong>Designation:</strong> ${cleaned.designation}</p>
           <p><strong>Language of Instruction:</strong> ${cleaned.instructionLanguage}</p>
+          <p><strong>Available From:</strong> ${cleaned.startTime}</p>
+          <p><strong>Available To:</strong> ${cleaned.endTime}</p>
           <p><strong>Availability:</strong> ${cleaned.availability}${cleaned.availabilityDetails ? ` (${cleaned.availabilityDetails})` : ''}</p>
           <p><strong>${cleaned.designation === 'Teacher' ? 'Islamic Education / Background' : cleaned.designation === 'Video Editor' ? 'Video Editing Skills' : 'TikTok Account'}:</strong> ${cleaned.roleDetails}</p>
           <p><strong>Goals:</strong> ${cleaned.goals}</p>
