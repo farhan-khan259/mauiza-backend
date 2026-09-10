@@ -14,6 +14,8 @@ const allowedOrigins = [
   'https://mauiza-backend.onrender.com'
 ];
 
+const prayerMethod = Number(process.env.PRAYER_CALCULATION_METHOD || 3);
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) {
@@ -23,6 +25,8 @@ app.use(cors({
     try {
       const hostname = new URL(origin).hostname;
       const isAllowed = allowedOrigins.includes(origin)
+        || hostname === 'localhost'
+        || hostname === '127.0.0.1'
         || hostname === 'mauiza.com'
         || hostname === 'www.mauiza.com'
         || hostname.endsWith('.mauiza.com')
@@ -51,6 +55,75 @@ app.get('/', (_req, res) => {
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
+});
+
+app.get('/api/geocode', async (req, res) => {
+  const query = String(req.query.q || '').trim();
+  if (query.length < 2) return res.json({ data: [] });
+
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`, {
+      headers: { 'User-Agent': 'Mauiza-Daily-Essentials/1.0 (mauizainstitute@gmail.com)' }
+    });
+    if (!response.ok) throw new Error('City search failed');
+    const results = await response.json();
+    res.json({ data: results.map((place) => ({
+      latitude: place.lat,
+      longitude: place.lon,
+      city: place.address?.city || place.address?.town || place.address?.village || place.display_name.split(',')[0],
+      country: place.address?.country || '',
+      label: place.display_name
+    })) });
+  } catch (error) {
+    console.error('Geocoding failed:', error);
+    res.status(502).json({ message: 'City search is temporarily unavailable.' });
+  }
+});
+
+app.get('/api/prayer-times', async (req, res) => {
+  const latitude = Number(req.query.latitude);
+  const longitude = Number(req.query.longitude);
+  const date = String(req.query.date || '').trim();
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ message: 'A valid location and date are required.' });
+  }
+
+  try {
+    const [year, month, day] = date.split('-');
+    const response = await fetch(`https://api.aladhan.com/v1/timings/${day}-${month}-${year}?latitude=${latitude}&longitude=${longitude}&method=${prayerMethod}`);
+    if (!response.ok) throw new Error('Prayer times request failed');
+    const result = await response.json();
+    if (result.code !== 200 || !result.data) throw new Error('Prayer times response was invalid');
+    const { data } = result;
+    const timings = Object.fromEntries(['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map((name) => [name, String(data.timings[name] || '').split(' ')[0]]));
+    const gregorian = data.date.gregorian;
+    let location = {};
+    try {
+      const locationResponse = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`, {
+        headers: { 'User-Agent': 'Mauiza-Daily-Essentials/1.0 (mauizainstitute@gmail.com)' }
+      });
+      const locationResult = await locationResponse.json();
+      const address = locationResult.address || {};
+      location = {
+        city: address.city || address.town || address.village || address.county || '',
+        country: address.country || ''
+      };
+    } catch (_error) {
+      // Prayer times remain usable if reverse geocoding is unavailable.
+    }
+    res.json({ data: {
+      timings,
+      timezone: data.meta.timezone,
+      method: data.meta.method?.name || `Method ${prayerMethod}`,
+      date: `${gregorian.year}-${String(gregorian.month.number).padStart(2, '0')}-${String(gregorian.day).padStart(2, '0')}`,
+      dateLabel: `${gregorian.weekday.en}, ${gregorian.day} ${gregorian.month.en} ${gregorian.year}`,
+      hijriDate: `${data.date.hijri.day} ${data.date.hijri.month.en} ${data.date.hijri.year}`,
+      location
+    } });
+  } catch (error) {
+    console.error('Prayer timings failed:', error);
+    res.status(502).json({ message: 'Prayer timings are temporarily unavailable. Please try again.' });
+  }
 });
 
 const adminEmail = process.env.EMAIL_USER || 'mauizainstitute@gmail.com';
