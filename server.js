@@ -162,6 +162,10 @@ const volunteerSchema = new mongoose.Schema({
   country: String,
   profession: String,
   designation: String,
+  ageGroup: String,
+  gender: String,
+  timezone: String,
+  faith: String,
   instructionLanguage: String,
   startTime: String,
   endTime: String,
@@ -393,6 +397,10 @@ app.post('/api/volunteers', async (req, res) => {
       country,
       profession,
       designation,
+      ageGroup,
+      gender,
+      timezone,
+      faith,
       instructionLanguage,
       startTime,
       endTime,
@@ -406,7 +414,7 @@ app.post('/api/volunteers', async (req, res) => {
 
     const cleanedFullName = (fullName || name || '').trim();
     const allowedDesignations = ['Teacher', 'Video Editor', 'Media Manager'];
-    const commonFields = [cleanedFullName, email, phone, country, profession, designation, instructionLanguage, startTime, endTime, availability, goals];
+    const commonFields = [cleanedFullName, email, phone, country, profession, designation, ageGroup, gender, timezone, faith, instructionLanguage, startTime, endTime, availability, goals];
 
     if (commonFields.some((value) => typeof value !== 'string' || !value.trim()) || !allowedDesignations.includes(designation)) {
       return res.status(400).json({ message: 'Please complete all required volunteer fields.' });
@@ -433,6 +441,10 @@ app.post('/api/volunteers', async (req, res) => {
       country,
       profession,
       designation,
+      ageGroup,
+      gender,
+      timezone,
+      faith,
       instructionLanguage,
       startTime,
       endTime,
@@ -455,6 +467,10 @@ app.post('/api/volunteers', async (req, res) => {
       `Country: ${cleaned.country}`,
       `Profession: ${cleaned.profession}`,
       `Designation: ${cleaned.designation}`,
+      `Age Group: ${cleaned.ageGroup}`,
+      `Gender: ${cleaned.gender}`,
+      `Time Zone: ${cleaned.timezone}`,
+      `Faith: ${cleaned.faith}`,
       `Language of Instruction: ${cleaned.instructionLanguage}`,
       `Available From: ${cleaned.startTime}`,
       `Available To: ${cleaned.endTime}`,
@@ -477,6 +493,10 @@ app.post('/api/volunteers', async (req, res) => {
           <p><strong>Country:</strong> ${cleaned.country}</p>
           <p><strong>Profession:</strong> ${cleaned.profession}</p>
           <p><strong>Designation:</strong> ${cleaned.designation}</p>
+          <p><strong>Age Group:</strong> ${cleaned.ageGroup}</p>
+          <p><strong>Gender:</strong> ${cleaned.gender}</p>
+          <p><strong>Time Zone:</strong> ${cleaned.timezone}</p>
+          <p><strong>Faith:</strong> ${cleaned.faith}</p>
           <p><strong>Language of Instruction:</strong> ${cleaned.instructionLanguage}</p>
           <p><strong>Available From:</strong> ${cleaned.startTime}</p>
           <p><strong>Available To:</strong> ${cleaned.endTime}</p>
