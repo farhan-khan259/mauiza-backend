@@ -14,7 +14,15 @@ const allowedOrigins = [
   'https://mauiza-backend.onrender.com'
 ];
 
-const prayerMethod = Number(process.env.PRAYER_CALCULATION_METHOD || 3);
+const ummAlQuraMethod = 4;
+const muslimWorldLeagueMethod = 3;
+
+function addMinutesToPrayerTime(value, minutesToAdd) {
+  const [hours, minutes] = value.split(':').map(Number);
+  const totalMinutes = hours * 60 + minutes + minutesToAdd;
+  const normalizedMinutes = ((totalMinutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+  return `${String(Math.floor(normalizedMinutes / 60)).padStart(2, '0')}:${String(normalizedMinutes % 60).padStart(2, '0')}`;
+}
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -90,12 +98,20 @@ app.get('/api/prayer-times', async (req, res) => {
 
   try {
     const [year, month, day] = date.split('-');
-    const response = await fetch(`https://api.aladhan.com/v1/timings/${day}-${month}-${year}?latitude=${latitude}&longitude=${longitude}&method=${prayerMethod}`);
-    if (!response.ok) throw new Error('Prayer times request failed');
-    const result = await response.json();
-    if (result.code !== 200 || !result.data) throw new Error('Prayer times response was invalid');
-    const { data } = result;
-    const timings = Object.fromEntries(['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map((name) => [name, String(data.timings[name] || '').split(' ')[0]]));
+    const endpoint = `https://api.aladhan.com/v1/timings/${day}-${month}-${year}?latitude=${latitude}&longitude=${longitude}`;
+    const [ummAlQuraResponse, muslimWorldLeagueResponse] = await Promise.all([
+      fetch(`${endpoint}&method=${ummAlQuraMethod}`),
+      fetch(`${endpoint}&method=${muslimWorldLeagueMethod}`)
+    ]);
+    if (!ummAlQuraResponse.ok || !muslimWorldLeagueResponse.ok) throw new Error('Prayer times request failed');
+    const [ummAlQuraResult, muslimWorldLeagueResult] = await Promise.all([ummAlQuraResponse.json(), muslimWorldLeagueResponse.json()]);
+    if (ummAlQuraResult.code !== 200 || !ummAlQuraResult.data || muslimWorldLeagueResult.code !== 200 || !muslimWorldLeagueResult.data) {
+      throw new Error('Prayer times response was invalid');
+    }
+    const { data } = ummAlQuraResult;
+    const timings = Object.fromEntries(['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib'].map((name) => [name, String(data.timings[name] || '').split(' ')[0]]));
+    timings.Dhuhr = addMinutesToPrayerTime(timings.Dhuhr, 5);
+    timings.Isha = String(muslimWorldLeagueResult.data.timings.Isha || '').split(' ')[0];
     const gregorian = data.date.gregorian;
     let location = {};
     try {
@@ -114,7 +130,7 @@ app.get('/api/prayer-times', async (req, res) => {
     res.json({ data: {
       timings,
       timezone: data.meta.timezone,
-      method: data.meta.method?.name || `Method ${prayerMethod}`,
+      method: 'Umm al-Qura, Makkah (Isha: Muslim World League)',
       date: `${gregorian.year}-${String(gregorian.month.number).padStart(2, '0')}-${String(gregorian.day).padStart(2, '0')}`,
       dateLabel: `${gregorian.weekday.en}, ${gregorian.day} ${gregorian.month.en} ${gregorian.year}`,
       hijriDate: `${data.date.hijri.day} ${data.date.hijri.month.en} ${data.date.hijri.year}`,
