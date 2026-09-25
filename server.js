@@ -88,6 +88,69 @@ app.get('/api/geocode', async (req, res) => {
   }
 });
 
+const halalIngredientRecords = [
+  { patterns: ['e120', 'carmine', 'cochineal'], classification: 'Potentially Haram', reason: 'Carmine/cochineal is a red colourant derived from insects. Seek a recognised halal certification if it is present.', source: 'Halal ingredient reference: insect-derived colourants' },
+  { patterns: ['e441', 'gelatin', 'gelatine'], classification: 'Requires Verification / Mushbooh', reason: 'Gelatin may come from fish, bovine, porcine, or other sources. The source and halal certification must be verified.', source: 'Halal ingredient reference: animal-derived gelatin' },
+  { patterns: ['e471', 'e472', 'mono- and diglycerides', 'mono and diglycerides'], classification: 'Requires Verification / Mushbooh', reason: 'Mono- and diglycerides can be produced from plant or animal fats. The source is not identifiable from the label alone.', source: 'Halal ingredient reference: emulsifiers' },
+  { patterns: ['e422', 'glycerol', 'glycerin', 'glycerine'], classification: 'Requires Verification / Mushbooh', reason: 'Glycerol can be plant-, synthetic-, or animal-derived. Ask the manufacturer about its source.', source: 'Halal ingredient reference: glycerol' },
+  { patterns: ['e904', 'shellac'], classification: 'Requires Verification / Mushbooh', reason: 'Shellac is a resin secreted by insects. Consult a trusted halal authority for the product context.', source: 'Halal ingredient reference: shellac' },
+  { patterns: ['e1105', 'lysozyme'], classification: 'Requires Verification / Mushbooh', reason: 'Lysozyme is commonly obtained from egg white, but source and processing should be verified.', source: 'Halal ingredient reference: enzymes' },
+  { patterns: ['e100', 'curcumin', 'e160a', 'beta-carotene', 'e300', 'ascorbic acid', 'e330', 'citric acid', 'e500', 'sodium bicarbonate', 'sugar', 'salt', 'flour'], classification: 'Generally Halal', reason: 'This ingredient is generally considered halal when no prohibited processing aids or additives are involved.', source: 'Halal ingredient reference: generally plant/mineral-derived ingredients' }
+];
+
+function ingredientTokens(value) {
+  return [...new Set(String(value || '').toLowerCase().match(/e\s*-?\s*\d{3,4}|[a-z][a-z -]{2,}/g)?.map((item) => item.replace(/\s+/g, ' ').trim()) || [])];
+}
+
+app.post('/api/halal/analyze', (req, res) => {
+  const ingredients = String(req.body?.ingredients || '').trim();
+  if (!ingredients) return res.status(400).json({ message: 'Ingredient text is required.' });
+  const normalized = ingredients.toLowerCase().replace(/e\s*-?\s*(\d{3,4})/g, 'e$1');
+  const matches = halalIngredientRecords.flatMap((record) => record.patterns.filter((pattern) => normalized.includes(pattern)).map((pattern) => ({ name: pattern.toUpperCase().startsWith('E') ? `Additive ${pattern.toUpperCase()}` : pattern.replace(/\b\w/g, (letter) => letter.toUpperCase()), eNumber: /^e\d+$/.test(pattern) ? pattern.toUpperCase() : undefined, classification: record.classification, reason: record.reason, source: record.source })));
+  const known = new Set(matches.map((match) => match.eNumber?.toLowerCase() || match.name.toLowerCase()));
+  ingredientTokens(ingredients).filter((token) => /^e\s*-?\s*\d{3,4}$/.test(token) && !known.has(token.replace(/\s|-/g, '').toLowerCase())).forEach((token) => matches.push({ name: `Additive ${token.toUpperCase().replace(/\s|-/g, '')}`, eNumber: token.toUpperCase().replace(/\s|-/g, ''), classification: 'Requires Verification / Mushbooh', reason: 'This E-number was detected, but no verified record is available in the configured reference set. Check the manufacturer and recognised halal certification.', source: 'Mauiza ingredient reference — record unavailable' }));
+  res.json({ results: matches });
+});
+
+app.post('/api/halal/ocr', async (req, res) => {
+  const image = String(req.body?.image || '');
+  if (!image.startsWith('data:image/')) return res.status(400).json({ message: 'Please upload a valid image file.' });
+  if (!process.env.OCR_SPACE_API_KEY) return res.status(503).json({ message: 'Image scanning needs an OCR provider key. Add OCR_SPACE_API_KEY on the server to enable it.' });
+  try {
+    const body = new URLSearchParams({ base64Image: image, language: 'eng', isOverlayRequired: 'false' });
+    const response = await fetch('https://api.ocr.space/parse/image', { method: 'POST', headers: { apikey: process.env.OCR_SPACE_API_KEY, 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    const result = await response.json();
+    const text = result.ParsedResults?.map((item) => item.ParsedText).join('\n').trim() || '';
+    if (!response.ok || result.IsErroredOnProcessing) throw new Error(result.ErrorMessage?.join(', ') || 'OCR could not read the image.');
+    res.json({ text });
+  } catch (error) { res.status(502).json({ message: error.message || 'OCR service is temporarily unavailable.' }); }
+});
+
+function distanceInKm(latitudeA, longitudeA, latitudeB, longitudeB) {
+  const radians = (value) => value * Math.PI / 180;
+  const latitudeDistance = radians(latitudeB - latitudeA);
+  const longitudeDistance = radians(longitudeB - longitudeA);
+  const a = Math.sin(latitudeDistance / 2) ** 2 + Math.cos(radians(latitudeA)) * Math.cos(radians(latitudeB)) * Math.sin(longitudeDistance / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+app.get('/api/nearby-places', async (req, res) => {
+  const latitude = Number(req.query.latitude), longitude = Number(req.query.longitude), radius = Math.min(Math.max(Number(req.query.radius) || 5, 1), 25);
+  const category = String(req.query.category || 'All');
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return res.status(400).json({ message: 'A valid search location is required.' });
+  const mosqueQuery = 'node["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON);way["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON);';
+  const foodQuery = 'node["diet:halal"="yes"](around:R,LAT,LON);way["diet:halal"="yes"](around:R,LAT,LON);';
+  const query = category === 'Mosques' || category === 'Islamic Centers' ? mosqueQuery : category === 'Halal Food' ? foodQuery : `${mosqueQuery}${foodQuery}`;
+  const overpass = `[out:json][timeout:20];(${query.replaceAll('R', String(radius * 1000)).replaceAll('LAT', latitude).replaceAll('LON', longitude)});out center tags;`;
+  try {
+    const response = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Mauiza-Daily-Essentials/1.0' }, body: overpass });
+    if (!response.ok) throw new Error('Nearby places request failed');
+    const payload = await response.json();
+    const results = (payload.elements || []).map((place) => { const placeLatitude = place.lat ?? place.center?.lat, placeLongitude = place.lon ?? place.center?.lon, tags = place.tags || {}; return { id: `${place.type}-${place.id}`, name: tags.name || 'Unnamed place', address: [tags['addr:housenumber'], tags['addr:street'], tags['addr:city']].filter(Boolean).join(', ') || 'Address unavailable', category: tags.amenity === 'place_of_worship' ? 'Mosque / Islamic center' : 'Halal food', latitude: placeLatitude, longitude: placeLongitude, distanceKm: Number(distanceInKm(latitude, longitude, placeLatitude, placeLongitude).toFixed(1)), directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${placeLatitude},${placeLongitude}` }; }).sort((a, b) => a.distanceKm - b.distanceKm);
+    res.json({ results });
+  } catch (error) { console.error('Nearby places failed:', error); res.status(502).json({ message: 'Nearby places are temporarily unavailable. Please try again.' }); }
+});
+
 app.get('/api/prayer-times', async (req, res) => {
   const latitude = Number(req.query.latitude);
   const longitude = Number(req.query.longitude);
