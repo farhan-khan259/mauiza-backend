@@ -102,14 +102,74 @@ function ingredientTokens(value) {
   return [...new Set(String(value || '').toLowerCase().match(/e\s*-?\s*\d{3,4}|[a-z][a-z -]{2,}/g)?.map((item) => item.replace(/\s+/g, ' ').trim()) || [])];
 }
 
+function splitIngredientEntries(value) {
+  return [...new Set(String(value || '').split(/[\n,;]+/).map((item) => item.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean))];
+}
+
 app.post('/api/halal/analyze', (req, res) => {
-  const ingredients = String(req.body?.ingredients || '').trim();
-  if (!ingredients) return res.status(400).json({ message: 'Ingredient text is required.' });
-  const normalized = ingredients.toLowerCase().replace(/e\s*-?\s*(\d{3,4})/g, 'e$1');
-  const matches = halalIngredientRecords.flatMap((record) => record.patterns.filter((pattern) => normalized.includes(pattern)).map((pattern) => ({ name: pattern.toUpperCase().startsWith('E') ? `Additive ${pattern.toUpperCase()}` : pattern.replace(/\b\w/g, (letter) => letter.toUpperCase()), eNumber: /^e\d+$/.test(pattern) ? pattern.toUpperCase() : undefined, classification: record.classification, reason: record.reason, source: record.source })));
-  const known = new Set(matches.map((match) => match.eNumber?.toLowerCase() || match.name.toLowerCase()));
-  ingredientTokens(ingredients).filter((token) => /^e\s*-?\s*\d{3,4}$/.test(token) && !known.has(token.replace(/\s|-/g, '').toLowerCase())).forEach((token) => matches.push({ name: `Additive ${token.toUpperCase().replace(/\s|-/g, '')}`, eNumber: token.toUpperCase().replace(/\s|-/g, ''), classification: 'Requires Verification / Mushbooh', reason: 'This E-number was detected, but no verified record is available in the configured reference set. Check the manufacturer and recognised halal certification.', source: 'Mauiza ingredient reference — record unavailable' }));
-  res.json({ results: matches });
+  const rawIngredients = String(req.body?.ingredients || '').trim();
+  if (!rawIngredients) return res.status(400).json({ message: 'Ingredient text is required.' });
+
+  const ingredientEntries = splitIngredientEntries(rawIngredients);
+
+  const results = ingredientEntries.map((entry) => {
+    const normalized = entry.toLowerCase().replace(/e\s*-?\s*(\d{3,4})/g, 'e$1');
+    const matchingRecord = halalIngredientRecords.find((record) => record.patterns.some((pattern) => normalized.includes(pattern.toLowerCase())));
+
+    if (matchingRecord) {
+      const pattern = matchingRecord.patterns.find((item) => normalized.includes(item.toLowerCase()));
+      return {
+        name: pattern && /^e\d+$/.test(pattern) ? `Additive ${pattern.toUpperCase()}` : (pattern || entry).replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        eNumber: /^e\d+$/.test(pattern || '') ? pattern.toUpperCase() : undefined,
+        classification: matchingRecord.classification,
+        reason: matchingRecord.reason,
+        source: matchingRecord.source
+      };
+    }
+
+    const lowerEntry = entry.toLowerCase();
+    const strongHaram = ['bear', 'pork', 'bacon', 'ham', 'lard', 'suet', 'cochineal', 'carmine', 'blood'];
+    const strongHalal = ['sugar', 'salt', 'flour', 'water', 'olive oil', 'palm oil', 'rice', 'corn starch', 'cornstarch', 'citric acid', 'ascorbic acid', 'sodium bicarbonate', 'beta-carotene', 'curcumin'];
+
+    if (strongHaram.some((term) => lowerEntry.includes(term))) {
+      return {
+        name: entry.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        classification: 'Potentially Haram',
+        reason: 'This ingredient is commonly associated with animal-based or restricted sources and should be checked before use.',
+        source: 'Mauiza ingredient reference — restricted ingredient list'
+      };
+    }
+
+    if (strongHalal.some((term) => lowerEntry.includes(term))) {
+      return {
+        name: entry.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        classification: 'Generally Halal',
+        reason: 'This ingredient is usually accepted as halal when no prohibited processing aids or cross-contamination are involved.',
+        source: 'Mauiza ingredient reference — common halal ingredient list'
+      };
+    }
+
+    const token = ingredientTokens(entry).find((item) => /^e\s*-?\s*\d{3,4}$/.test(item));
+    if (token) {
+      const eNumber = token.replace(/\s|-/g, '').toUpperCase();
+      return {
+        name: `Additive ${eNumber}`,
+        eNumber,
+        classification: 'Requires Verification / Mushbooh',
+        reason: 'This E-number was detected, but no verified record is available in the configured reference set. Check the manufacturer and recognised halal certification.',
+        source: 'Mauiza ingredient reference — record unavailable'
+      };
+    }
+
+    return {
+      name: entry.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      classification: 'Requires Verification / Mushbooh',
+      reason: 'This ingredient did not match the current halal reference list. Please confirm the source and packaging information before relying on it.',
+      source: 'Mauiza ingredient reference — no match found'
+    };
+  });
+
+  res.json({ results });
 });
 
 app.post('/api/halal/ocr', async (req, res) => {
