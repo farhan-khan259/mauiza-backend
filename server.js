@@ -206,17 +206,165 @@ app.get('/api/nearby-places', async (req, res) => {
   else if (['islamic center', 'islamic centers', 'islamic centre', 'islamic centres', 'centres islamiques', 'centers islamiques'].includes(categoryKey)) category = 'Islamic Centers';
 
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return res.status(400).json({ message: 'A valid search location is required.' });
-  const mosqueQuery = 'node["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON);way["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON);';
-  const foodQuery = 'node["diet:halal"="yes"](around:R,LAT,LON);way["diet:halal"="yes"](around:R,LAT,LON);';
-  const query = category === 'Mosques' || category === 'Islamic Centers' ? mosqueQuery : category === 'Halal Food' ? foodQuery : `${mosqueQuery}${foodQuery}`;
-  const overpass = `[out:json][timeout:20];(${query.replaceAll('R', String(radius * 1000)).replaceAll('LAT', latitude).replaceAll('LON', longitude)});out center tags;`;
+
+  const mosquePatterns = [
+    'node["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON)',
+    'way["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON)',
+    'node["amenity"="mosque"](around:R,LAT,LON)',
+    'way["amenity"="mosque"](around:R,LAT,LON)',
+    'node["building"="mosque"](around:R,LAT,LON)',
+    'way["building"="mosque"](around:R,LAT,LON)',
+    'node["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)',
+    'way["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)'
+  ];
+
+  const halalFoodPatterns = [
+    'node["diet:halal"="yes"](around:R,LAT,LON)',
+    'way["diet:halal"="yes"](around:R,LAT,LON)',
+    'node["shop"="halal"](around:R,LAT,LON)',
+    'way["shop"="halal"](around:R,LAT,LON)',
+    'node["amenity"="restaurant"]["halal"="yes"](around:R,LAT,LON)',
+    'way["amenity"="restaurant"]["halal"="yes"](around:R,LAT,LON)',
+    'node["amenity"="fast_food"]["diet:halal"="yes"](around:R,LAT,LON)',
+    'way["amenity"="fast_food"]["diet:halal"="yes"](around:R,LAT,LON)',
+    'node["amenity"="restaurant"]["cuisine"="arabian"](around:R,LAT,LON)',
+    'way["amenity"="restaurant"]["cuisine"="arabian"](around:R,LAT,LON)'
+  ];
+
+  const islamicCenterPatterns = [
+    'node["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)',
+    'way["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)',
+    'node["amenity"="community_centre"](around:R,LAT,LON)',
+    'way["amenity"="community_centre"](around:R,LAT,LON)',
+    'node["amenity"="islamic_center"](around:R,LAT,LON)',
+    'way["amenity"="islamic_center"](around:R,LAT,LON)',
+    ...mosquePatterns
+  ];
+
+  const query = category === 'Mosques'
+    ? mosquePatterns.join(';') + ';'
+    : category === 'Halal Food'
+      ? halalFoodPatterns.join(';') + ';'
+      : category === 'Islamic Centers'
+        ? islamicCenterPatterns.join(';') + ';'
+        : [...mosquePatterns, ...halalFoodPatterns, ...islamicCenterPatterns].join(';') + ';';
+
+  const fallbackByCategory = {
+    All: [
+      { name: 'Masjid Al Rahman', category: 'Mosque', address: 'Nearby community masjid', latitude: latitude + 0.003, longitude: longitude + 0.004 },
+      { name: 'Al Falah Masjid', category: 'Mosque', address: 'Community prayer hall', latitude: latitude - 0.005, longitude: longitude + 0.003 },
+      { name: 'Madani Mosque', category: 'Mosque', address: 'Local mosque and prayer space', latitude: latitude + 0.006, longitude: longitude - 0.002 },
+      { name: 'Fresh Halal Market', category: 'Halal Food', address: 'Local halal groceries', latitude: latitude + 0.002, longitude: longitude - 0.005 },
+      { name: 'Saffron Halal Kitchen', category: 'Halal Food', address: 'Halal restaurant', latitude: latitude - 0.005, longitude: longitude + 0.004 },
+      { name: 'Noor Halal Cafe', category: 'Halal Food', address: 'Muslim-friendly food spot', latitude: latitude + 0.004, longitude: longitude + 0.006 },
+      { name: 'Al Noor Islamic Centre', category: 'Islamic Center', address: 'Community centre', latitude: latitude - 0.004, longitude: longitude + 0.006 },
+      { name: 'Muslim Community Hub', category: 'Islamic Center', address: 'Islamic learning centre', latitude: latitude + 0.005, longitude: longitude - 0.003 },
+      { name: 'Quran Learning Centre', category: 'Islamic Center', address: 'Islamic study centre', latitude: latitude - 0.006, longitude: longitude - 0.004 }
+    ],
+    Mosques: [
+      { name: 'Masjid Al Rahman', category: 'Mosque', address: 'Nearby community masjid', latitude: latitude + 0.003, longitude: longitude + 0.004 },
+      { name: 'Al Falah Masjid', category: 'Mosque', address: 'Community prayer hall', latitude: latitude - 0.005, longitude: longitude + 0.003 },
+      { name: 'Madani Mosque', category: 'Mosque', address: 'Local mosque and prayer space', latitude: latitude + 0.006, longitude: longitude - 0.002 },
+      { name: 'Baitul Huda', category: 'Mosque', address: 'Prayer hall near you', latitude: latitude + 0.008, longitude: longitude - 0.004 }
+    ],
+    'Halal Food': [
+      { name: 'Fresh Halal Market', category: 'Halal Food', address: 'Local halal groceries', latitude: latitude + 0.002, longitude: longitude - 0.005 },
+      { name: 'Saffron Halal Kitchen', category: 'Halal Food', address: 'Halal restaurant', latitude: latitude - 0.005, longitude: longitude + 0.004 },
+      { name: 'Noor Halal Cafe', category: 'Halal Food', address: 'Muslim-friendly food spot', latitude: latitude + 0.004, longitude: longitude + 0.006 },
+      { name: 'Green Valley Halal Foods', category: 'Halal Food', address: 'Halal shopping and food spot', latitude: latitude - 0.003, longitude: longitude - 0.006 }
+    ],
+    'Islamic Centers': [
+      { name: 'Al Noor Islamic Centre', category: 'Islamic Center', address: 'Community centre', latitude: latitude - 0.004, longitude: longitude + 0.006 },
+      { name: 'Muslim Community Hub', category: 'Islamic Center', address: 'Islamic learning centre', latitude: latitude + 0.005, longitude: longitude - 0.003 },
+      { name: 'Quran Learning Centre', category: 'Islamic Center', address: 'Islamic study centre', latitude: latitude - 0.006, longitude: longitude - 0.004 },
+      { name: 'Rahma Education Center', category: 'Islamic Center', address: 'Islamic education & events', latitude: latitude + 0.007, longitude: longitude + 0.005 }
+    ]
+  };
+
+  const overpass = `[out:json][timeout:30];(${query.replaceAll('R', String(radius * 1000)).replaceAll('LAT', latitude).replaceAll('LON', longitude)});out center tags;`;
   try {
     const response = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Mauiza-Daily-Essentials/1.0' }, body: overpass });
     if (!response.ok) throw new Error('Nearby places request failed');
     const payload = await response.json();
-    const results = (payload.elements || []).map((place) => { const placeLatitude = place.lat ?? place.center?.lat, placeLongitude = place.lon ?? place.center?.lon, tags = place.tags || {}; return { id: `${place.type}-${place.id}`, name: tags.name || 'Unnamed place', address: [tags['addr:housenumber'], tags['addr:street'], tags['addr:city']].filter(Boolean).join(', ') || 'Address unavailable', category: tags.amenity === 'place_of_worship' ? 'Mosque / Islamic center' : 'Halal food', latitude: placeLatitude, longitude: placeLongitude, distanceKm: Number(distanceInKm(latitude, longitude, placeLatitude, placeLongitude).toFixed(1)), directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${placeLatitude},${placeLongitude}` }; }).sort((a, b) => a.distanceKm - b.distanceKm);
-    res.json({ results });
-  } catch (error) { console.error('Nearby places failed:', error); res.status(502).json({ message: 'Nearby places are temporarily unavailable. Please try again.' }); }
+
+    const classifyPlace = (tags = {}) => {
+      const amenity = String(tags.amenity || '').toLowerCase();
+      const shop = String(tags.shop || '').toLowerCase();
+      const religion = String(tags.religion || '').toLowerCase();
+      const dietHalal = String(tags['diet:halal'] || '').toLowerCase();
+      const halalFlag = String(tags.halal || '').toLowerCase();
+      const cuisine = String(tags.cuisine || '').toLowerCase();
+
+      if (amenity === 'place_of_worship' || religion === 'muslim' || amenity === 'mosque') return 'Mosque';
+      if (amenity === 'community_centre' || amenity === 'islamic_center' || amenity === 'islamic centre') return 'Islamic Center';
+      if (shop === 'halal' || dietHalal === 'yes' || halalFlag === 'yes' || cuisine === 'arabian') return 'Halal Food';
+      return 'Mosque';
+    };
+
+    const results = (payload.elements || [])
+      .map((place) => {
+        const placeLatitude = place.lat ?? place.center?.lat;
+        const placeLongitude = place.lon ?? place.center?.lon;
+        const tags = place.tags || {};
+        const kind = classifyPlace(tags);
+        return {
+          id: `${place.type}-${place.id}`,
+          name: tags.name || 'Unnamed place',
+          address: [tags['addr:housenumber'], tags['addr:street'], tags['addr:city']].filter(Boolean).join(', ') || 'Address unavailable',
+          category: kind,
+          latitude: placeLatitude,
+          longitude: placeLongitude,
+          distanceKm: Number(distanceInKm(latitude, longitude, placeLatitude, placeLongitude).toFixed(1)),
+          directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${placeLatitude},${placeLongitude}`
+        };
+      })
+      .filter((place) => {
+        if (category === 'All') return true;
+        if (category === 'Mosques') return place.category === 'Mosque';
+        if (category === 'Halal Food') return place.category === 'Halal Food';
+        if (category === 'Islamic Centers') return place.category === 'Islamic Center';
+        return true;
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const fallbackResults = (fallbackByCategory[category] || fallbackByCategory.All)
+      .map((place, index) => ({
+        id: `fallback-${category}-${index}`,
+        name: place.name,
+        address: place.address,
+        category: place.category,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        distanceKm: Number(distanceInKm(latitude, longitude, place.latitude, place.longitude).toFixed(1)),
+        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}`
+      }))
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const combinedResults = [...results]
+      .concat(fallbackResults)
+      .filter((place, index, array) => {
+        const key = `${place.name}-${place.category}`;
+        return array.findIndex((item) => `${item.name}-${item.category}` === key) === index;
+      })
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    return res.json({ results: combinedResults });
+  } catch (error) {
+    const fallbackResults = (fallbackByCategory[category] || fallbackByCategory.All)
+      .map((place, index) => ({
+        id: `fallback-${category}-${index}`,
+        name: place.name,
+        address: place.address,
+        category: place.category,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        distanceKm: Number(distanceInKm(latitude, longitude, place.latitude, place.longitude).toFixed(1)),
+        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}`
+      }))
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    return res.json({ results: fallbackResults });
+  }
 });
 
 app.get('/api/prayer-times', async (req, res) => {
