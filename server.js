@@ -196,7 +196,15 @@ function distanceInKm(latitudeA, longitudeA, latitudeB, longitudeB) {
 
 app.get('/api/nearby-places', async (req, res) => {
   const latitude = Number(req.query.latitude), longitude = Number(req.query.longitude), radius = Math.min(Math.max(Number(req.query.radius) || 5, 1), 25);
-  const category = String(req.query.category || 'All');
+  const categoryInput = String(req.query.category || 'All');
+  const categoryKey = categoryInput.toLowerCase().replace(/[\s_-]+/g, ' ').trim();
+
+  let category = 'All';
+  if (['all', 'tous'].includes(categoryKey)) category = 'All';
+  else if (['mosque', 'mosques', 'mosquée', 'mosquées'].includes(categoryKey)) category = 'Mosques';
+  else if (['halal food', 'halal-food', 'nourriture halal'].includes(categoryKey)) category = 'Halal Food';
+  else if (['islamic center', 'islamic centers', 'islamic centre', 'islamic centres', 'centres islamiques', 'centers islamiques'].includes(categoryKey)) category = 'Islamic Centers';
+
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return res.status(400).json({ message: 'A valid search location is required.' });
   const mosqueQuery = 'node["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON);way["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON);';
   const foodQuery = 'node["diet:halal"="yes"](around:R,LAT,LON);way["diet:halal"="yes"](around:R,LAT,LON);';
