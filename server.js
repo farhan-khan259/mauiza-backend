@@ -435,6 +435,8 @@ const contactSchema = new mongoose.Schema({
 const registrationSchema = new mongoose.Schema({
   fullName: String,
   email: String,
+  phoneCountryCode: String,
+  phoneNumber: String,
   phone: String,
   country: String,
   ageGroup: String,
@@ -453,6 +455,8 @@ const registrationSchema = new mongoose.Schema({
 const volunteerSchema = new mongoose.Schema({
   fullName: String,
   email: String,
+  phoneCountryCode: String,
+  phoneNumber: String,
   phone: String,
   country: String,
   profession: String,
@@ -580,6 +584,8 @@ app.post('/api/registration', async (req, res) => {
     const {
       fullName,
       email,
+      phoneCountryCode,
+      phoneNumber,
       phone,
       country,
       ageGroup,
@@ -597,7 +603,7 @@ app.post('/api/registration', async (req, res) => {
 
     const cleanedFullName = fullName || name || '';
 
-    if ([cleanedFullName, email, phone, country, ageGroup, gender, timezone, instructionLanguage, faith, course, startTime, endTime, goals]
+    if ([cleanedFullName, email, phoneCountryCode, phoneNumber, phone, country, ageGroup, gender, timezone, instructionLanguage, faith, course, startTime, endTime, goals]
       .some((value) => typeof value !== 'string' || !value.trim())) {
       return res.status(400).json({ message: 'Please complete all required registration fields.' });
     }
@@ -619,6 +625,8 @@ app.post('/api/registration', async (req, res) => {
     const saved = await RegistrationEntry.create({
       fullName: cleanedFullName,
       email: cleanedEmail,
+      phoneCountryCode: phoneCountryCode.trim(),
+      phoneNumber: phoneNumber.trim(),
       phone: cleanedPhone,
       country: cleanedCountry,
       ageGroup: cleanedAgeGroup,
@@ -636,6 +644,8 @@ app.post('/api/registration', async (req, res) => {
     const emailText = [
       `Full Name: ${cleanedFullName}`,
       `Email: ${email}`,
+      `WhatsApp Country Code: ${phoneCountryCode}`,
+      `WhatsApp Number: ${phoneNumber}`,
       `WhatsApp Number: ${phone}`,
       `Country: ${country}`,
       `Age Group: ${ageGroup}`,
@@ -658,6 +668,8 @@ app.post('/api/registration', async (req, res) => {
           <h3>New Registration</h3>
           <p><strong>Full Name:</strong> ${cleanedFullName}</p>
           <p><strong>Email:</strong> ${email}</p>
+          <p><strong>WhatsApp Country Code:</strong> ${phoneCountryCode}</p>
+          <p><strong>WhatsApp Number:</strong> ${phoneNumber}</p>
           <p><strong>WhatsApp Number:</strong> ${phone}</p>
           <p><strong>Country:</strong> ${country}</p>
           <p><strong>Age Group:</strong> ${ageGroup}</p>
@@ -688,6 +700,8 @@ app.post('/api/volunteers', async (req, res) => {
       fullName,
       name,
       email,
+      phoneCountryCode,
+      phoneNumber,
       phone,
       country,
       profession,
@@ -709,7 +723,7 @@ app.post('/api/volunteers', async (req, res) => {
 
     const cleanedFullName = (fullName || name || '').trim();
     const allowedDesignations = ['Teacher', 'Video Editor', 'Media Manager'];
-    const commonFields = [cleanedFullName, email, phone, country, profession, designation, ageGroup, gender, timezone, faith, instructionLanguage, startTime, endTime, availability, goals];
+    const commonFields = [cleanedFullName, email, phoneCountryCode, phoneNumber, phone, country, profession, designation, ageGroup, gender, timezone, faith, instructionLanguage, startTime, endTime, availability, goals];
 
     if (commonFields.some((value) => typeof value !== 'string' || !value.trim()) || !allowedDesignations.includes(designation)) {
       return res.status(400).json({ message: 'Please complete all required volunteer fields.' });
@@ -732,6 +746,8 @@ app.post('/api/volunteers', async (req, res) => {
     const cleaned = Object.fromEntries(Object.entries({
       fullName: cleanedFullName,
       email,
+      phoneCountryCode,
+      phoneNumber,
       phone,
       country,
       profession,
@@ -758,6 +774,8 @@ app.post('/api/volunteers', async (req, res) => {
       '',
       `Full Name: ${cleaned.fullName}`,
       `Email: ${cleaned.email}`,
+      `WhatsApp Country Code: ${cleaned.phoneCountryCode}`,
+      `WhatsApp Number: ${cleaned.phoneNumber}`,
       `WhatsApp Number: ${cleaned.phone}`,
       `Country: ${cleaned.country}`,
       `Profession: ${cleaned.profession}`,
@@ -784,6 +802,8 @@ app.post('/api/volunteers', async (req, res) => {
           <h3>New Volunteer Application</h3>
           <p><strong>Full Name:</strong> ${cleaned.fullName}</p>
           <p><strong>Email:</strong> ${cleaned.email}</p>
+          <p><strong>WhatsApp Country Code:</strong> ${cleaned.phoneCountryCode}</p>
+          <p><strong>WhatsApp Number:</strong> ${cleaned.phoneNumber}</p>
           <p><strong>WhatsApp Number:</strong> ${cleaned.phone}</p>
           <p><strong>Country:</strong> ${cleaned.country}</p>
           <p><strong>Profession:</strong> ${cleaned.profession}</p>
