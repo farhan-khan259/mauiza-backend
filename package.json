@@ -5,8 +5,8 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "dev": "node --watch server.js",
-    "start": "node server.js"
+    "dev": "node api.js && node --watch server.js",
+    "start": "node api.js && node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -609,7 +609,14 @@ app.post('/api/registration', async (req, res) => {
     }
 
     const cleanedEmail = email.trim();
+    const cleanedPhoneCountryCode = phoneCountryCode.trim();
+    const cleanedPhoneNumber = phoneNumber.trim();
     const cleanedPhone = phone.trim();
+    if (!/^\+[1-9]\d{0,2}$/.test(cleanedPhoneCountryCode)
+      || !/^\+[1-9]\d{1,14}$/.test(cleanedPhone)
+      || !cleanedPhone.startsWith(cleanedPhoneCountryCode)) {
+      return res.status(400).json({ message: 'The phone number must match the selected country code.' });
+    }
     const cleanedCountry = country.trim();
     const cleanedAgeGroup = ageGroup.trim();
     const cleanedGender = gender.trim();
@@ -625,8 +632,8 @@ app.post('/api/registration', async (req, res) => {
     const saved = await RegistrationEntry.create({
       fullName: cleanedFullName,
       email: cleanedEmail,
-      phoneCountryCode: phoneCountryCode.trim(),
-      phoneNumber: phoneNumber.trim(),
+      phoneCountryCode: cleanedPhoneCountryCode,
+      phoneNumber: cleanedPhoneNumber,
       phone: cleanedPhone,
       country: cleanedCountry,
       ageGroup: cleanedAgeGroup,
@@ -644,9 +651,9 @@ app.post('/api/registration', async (req, res) => {
     const emailText = [
       `Full Name: ${cleanedFullName}`,
       `Email: ${email}`,
-      `WhatsApp Country Code: ${phoneCountryCode}`,
-      `WhatsApp Number: ${phoneNumber}`,
-      `WhatsApp Number: ${phone}`,
+      `WhatsApp Country Code: ${cleanedPhoneCountryCode}`,
+      `WhatsApp Local Number: ${cleanedPhoneNumber}`,
+      `WhatsApp Number (international): ${cleanedPhone}`,
       `Country: ${country}`,
       `Age Group: ${ageGroup}`,
       `Gender: ${gender}`,
@@ -668,9 +675,9 @@ app.post('/api/registration', async (req, res) => {
           <h3>New Registration</h3>
           <p><strong>Full Name:</strong> ${cleanedFullName}</p>
           <p><strong>Email:</strong> ${email}</p>
-          <p><strong>WhatsApp Country Code:</strong> ${phoneCountryCode}</p>
-          <p><strong>WhatsApp Number:</strong> ${phoneNumber}</p>
-          <p><strong>WhatsApp Number:</strong> ${phone}</p>
+          <p><strong>WhatsApp Country Code:</strong> ${cleanedPhoneCountryCode}</p>
+          <p><strong>WhatsApp Local Number:</strong> ${cleanedPhoneNumber}</p>
+          <p><strong>WhatsApp Number (international):</strong> ${cleanedPhone}</p>
           <p><strong>Country:</strong> ${country}</p>
           <p><strong>Age Group:</strong> ${ageGroup}</p>
           <p><strong>Gender:</strong> ${gender}</p>
@@ -729,6 +736,14 @@ app.post('/api/volunteers', async (req, res) => {
       return res.status(400).json({ message: 'Please complete all required volunteer fields.' });
     }
 
+    const cleanedPhoneCountryCode = phoneCountryCode.trim();
+    const cleanedPhone = phone.trim();
+    if (!/^\+[1-9]\d{0,2}$/.test(cleanedPhoneCountryCode)
+      || !/^\+[1-9]\d{1,14}$/.test(cleanedPhone)
+      || !cleanedPhone.startsWith(cleanedPhoneCountryCode)) {
+      return res.status(400).json({ message: 'The phone number must match the selected country code.' });
+    }
+
     const roleField = designation === 'Teacher'
       ? islamicEducation
       : designation === 'Video Editor'
@@ -775,8 +790,8 @@ app.post('/api/volunteers', async (req, res) => {
       `Full Name: ${cleaned.fullName}`,
       `Email: ${cleaned.email}`,
       `WhatsApp Country Code: ${cleaned.phoneCountryCode}`,
-      `WhatsApp Number: ${cleaned.phoneNumber}`,
-      `WhatsApp Number: ${cleaned.phone}`,
+      `WhatsApp Local Number: ${cleaned.phoneNumber}`,
+      `WhatsApp Number (international): ${cleaned.phone}`,
       `Country: ${cleaned.country}`,
       `Profession: ${cleaned.profession}`,
       `Designation: ${cleaned.designation}`,
@@ -803,8 +818,8 @@ app.post('/api/volunteers', async (req, res) => {
           <p><strong>Full Name:</strong> ${cleaned.fullName}</p>
           <p><strong>Email:</strong> ${cleaned.email}</p>
           <p><strong>WhatsApp Country Code:</strong> ${cleaned.phoneCountryCode}</p>
-          <p><strong>WhatsApp Number:</strong> ${cleaned.phoneNumber}</p>
-          <p><strong>WhatsApp Number:</strong> ${cleaned.phone}</p>
+          <p><strong>WhatsApp Local Number:</strong> ${cleaned.phoneNumber}</p>
+          <p><strong>WhatsApp Number (international):</strong> ${cleaned.phone}</p>
           <p><strong>Country:</strong> ${cleaned.country}</p>
           <p><strong>Profession:</strong> ${cleaned.profession}</p>
           <p><strong>Designation:</strong> ${cleaned.designation}</p>
