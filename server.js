@@ -69,22 +69,27 @@ app.get('/api/geocode', async (req, res) => {
   const query = String(req.query.q || '').trim();
   if (query.length < 2) return res.json({ data: [] });
 
+  const googleMapsApiKey = String(process.env.GOOGLE_MAPS_API_KEY || '').trim();
+  if (!googleMapsApiKey) {
+    return res.status(503).json({ message: 'Location search is not configured. Add GOOGLE_MAPS_API_KEY on the server.' });
+  }
+
   try {
-    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`, {
-      headers: { 'User-Agent': 'Mauiza-Daily-Essentials/1.0 (mauizainstitute@gmail.com)' }
-    });
-    if (!response.ok) throw new Error('City search failed');
-    const results = await response.json();
-    res.json({ data: results.map((place) => ({
-      latitude: place.lat,
-      longitude: place.lon,
-      city: place.address?.city || place.address?.town || place.address?.village || place.display_name.split(',')[0],
-      country: place.address?.country || '',
-      label: place.display_name
+    const result = await googlePlacesRequest('places:searchText', {
+      textQuery: query,
+      pageSize: 6
+    }, googleMapsApiKey, 'places.id,places.displayName,places.formattedAddress,places.location');
+    res.json({ data: (result.places || []).map((place) => ({
+      latitude: place.location?.latitude,
+      longitude: place.location?.longitude,
+      city: place.displayName?.text || '',
+      country: '',
+      label: place.formattedAddress || place.displayName?.text || query,
+      placeId: place.id
     })) });
   } catch (error) {
     console.error('Geocoding failed:', error);
-    res.status(502).json({ message: 'City search is temporarily unavailable.' });
+    res.status(502).json({ message: `Google location search could not be loaded: ${error.message || 'Please try again.'}` });
   }
 });
 
@@ -194,6 +199,78 @@ function distanceInKm(latitudeA, longitudeA, latitudeB, longitudeB) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function parseGoogleDurationSeconds(value) {
+  const seconds = Number.parseFloat(String(value || '').replace(/s$/, ''));
+  return Number.isFinite(seconds) ? Math.round(seconds) : null;
+}
+
+function formatTravelTime(seconds) {
+  if (!Number.isFinite(seconds)) return null;
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours} hr ${remainingMinutes} min` : `${hours} hr`;
+}
+
+async function googlePlacesRequest(path, body, apiKey, fieldMask) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(`https://places.googleapis.com/v1/${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': apiKey,
+        'X-Goog-FieldMask': fieldMask || [
+          'places.id',
+          'places.displayName',
+          'places.formattedAddress',
+          'places.location',
+          'places.googleMapsUri',
+          'places.primaryType',
+          'places.types',
+          'places.businessStatus',
+          'places.rating',
+          'places.userRatingCount',
+          'routingSummaries',
+          'nextPageToken'
+        ].join(',')
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const providerMessage = payload.error?.message || `Google Places returned ${response.status}`;
+      throw new Error(providerMessage);
+    }
+    return payload;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function googleTextSearchAll(body, apiKey, maxPages = 3) {
+  const pages = [];
+  let pageToken;
+  for (let page = 0; page < maxPages; page += 1) {
+    const payload = await googlePlacesRequest('places:searchText', {
+      ...body,
+      ...(pageToken ? { pageToken } : {})
+    }, apiKey);
+    pages.push(payload);
+    pageToken = payload.nextPageToken;
+    if (!pageToken) break;
+  }
+  return pages;
+}
+
+async function googleTextSearchMany(searchBodies, apiKey) {
+  const pageGroups = await Promise.all(searchBodies.map((body) => googleTextSearchAll(body, apiKey, 1)));
+  return pageGroups.flat();
+}
+
 app.get('/api/nearby-places', async (req, res) => {
   const latitude = Number(req.query.latitude), longitude = Number(req.query.longitude), radius = Math.min(Math.max(Number(req.query.radius) || 5, 1), 25);
   const categoryInput = String(req.query.category || 'All');
@@ -205,165 +282,119 @@ app.get('/api/nearby-places', async (req, res) => {
   else if (['halal food', 'halal-food', 'nourriture halal'].includes(categoryKey)) category = 'Halal Food';
   else if (['islamic center', 'islamic centers', 'islamic centre', 'islamic centres', 'centres islamiques', 'centers islamiques'].includes(categoryKey)) category = 'Islamic Centers';
 
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return res.status(400).json({ message: 'A valid search location is required.' });
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+    return res.status(400).json({ message: 'A valid search location is required.' });
+  }
 
-  const mosquePatterns = [
-    'node["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON)',
-    'way["amenity"="place_of_worship"]["religion"="muslim"](around:R,LAT,LON)',
-    'node["amenity"="mosque"](around:R,LAT,LON)',
-    'way["amenity"="mosque"](around:R,LAT,LON)',
-    'node["building"="mosque"](around:R,LAT,LON)',
-    'way["building"="mosque"](around:R,LAT,LON)',
-    'node["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)',
-    'way["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)'
-  ];
+  const googleMapsApiKey = String(process.env.GOOGLE_MAPS_API_KEY || '').trim();
+  if (!googleMapsApiKey) {
+    return res.status(503).json({
+      message: 'Nearby search is not configured. Add GOOGLE_MAPS_API_KEY on the server and enable Places API (New).'
+    });
+  }
 
-  const halalFoodPatterns = [
-    'node["diet:halal"="yes"](around:R,LAT,LON)',
-    'way["diet:halal"="yes"](around:R,LAT,LON)',
-    'node["shop"="halal"](around:R,LAT,LON)',
-    'way["shop"="halal"](around:R,LAT,LON)',
-    'node["amenity"="restaurant"]["halal"="yes"](around:R,LAT,LON)',
-    'way["amenity"="restaurant"]["halal"="yes"](around:R,LAT,LON)',
-    'node["amenity"="fast_food"]["diet:halal"="yes"](around:R,LAT,LON)',
-    'way["amenity"="fast_food"]["diet:halal"="yes"](around:R,LAT,LON)',
-    'node["amenity"="restaurant"]["cuisine"="arabian"](around:R,LAT,LON)',
-    'way["amenity"="restaurant"]["cuisine"="arabian"](around:R,LAT,LON)'
-  ];
-
-  const islamicCenterPatterns = [
-    'node["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)',
-    'way["amenity"="community_centre"]["religion"="muslim"](around:R,LAT,LON)',
-    'node["amenity"="community_centre"](around:R,LAT,LON)',
-    'way["amenity"="community_centre"](around:R,LAT,LON)',
-    'node["amenity"="islamic_center"](around:R,LAT,LON)',
-    'way["amenity"="islamic_center"](around:R,LAT,LON)',
-    ...mosquePatterns
-  ];
-
-  const query = category === 'Mosques'
-    ? mosquePatterns.join(';') + ';'
-    : category === 'Halal Food'
-      ? halalFoodPatterns.join(';') + ';'
-      : category === 'Islamic Centers'
-        ? islamicCenterPatterns.join(';') + ';'
-        : [...mosquePatterns, ...halalFoodPatterns, ...islamicCenterPatterns].join(';') + ';';
-
-  const fallbackByCategory = {
-    All: [
-      { name: 'Masjid Al Rahman', category: 'Mosque', address: 'Nearby community masjid', latitude: latitude + 0.003, longitude: longitude + 0.004 },
-      { name: 'Al Falah Masjid', category: 'Mosque', address: 'Community prayer hall', latitude: latitude - 0.005, longitude: longitude + 0.003 },
-      { name: 'Madani Mosque', category: 'Mosque', address: 'Local mosque and prayer space', latitude: latitude + 0.006, longitude: longitude - 0.002 },
-      { name: 'Fresh Halal Market', category: 'Halal Food', address: 'Local halal groceries', latitude: latitude + 0.002, longitude: longitude - 0.005 },
-      { name: 'Saffron Halal Kitchen', category: 'Halal Food', address: 'Halal restaurant', latitude: latitude - 0.005, longitude: longitude + 0.004 },
-      { name: 'Noor Halal Cafe', category: 'Halal Food', address: 'Muslim-friendly food spot', latitude: latitude + 0.004, longitude: longitude + 0.006 },
-      { name: 'Al Noor Islamic Centre', category: 'Islamic Center', address: 'Community centre', latitude: latitude - 0.004, longitude: longitude + 0.006 },
-      { name: 'Muslim Community Hub', category: 'Islamic Center', address: 'Islamic learning centre', latitude: latitude + 0.005, longitude: longitude - 0.003 },
-      { name: 'Quran Learning Centre', category: 'Islamic Center', address: 'Islamic study centre', latitude: latitude - 0.006, longitude: longitude - 0.004 }
-    ],
-    Mosques: [
-      { name: 'Masjid Al Rahman', category: 'Mosque', address: 'Nearby community masjid', latitude: latitude + 0.003, longitude: longitude + 0.004 },
-      { name: 'Al Falah Masjid', category: 'Mosque', address: 'Community prayer hall', latitude: latitude - 0.005, longitude: longitude + 0.003 },
-      { name: 'Madani Mosque', category: 'Mosque', address: 'Local mosque and prayer space', latitude: latitude + 0.006, longitude: longitude - 0.002 },
-      { name: 'Baitul Huda', category: 'Mosque', address: 'Prayer hall near you', latitude: latitude + 0.008, longitude: longitude - 0.004 }
-    ],
-    'Halal Food': [
-      { name: 'Fresh Halal Market', category: 'Halal Food', address: 'Local halal groceries', latitude: latitude + 0.002, longitude: longitude - 0.005 },
-      { name: 'Saffron Halal Kitchen', category: 'Halal Food', address: 'Halal restaurant', latitude: latitude - 0.005, longitude: longitude + 0.004 },
-      { name: 'Noor Halal Cafe', category: 'Halal Food', address: 'Muslim-friendly food spot', latitude: latitude + 0.004, longitude: longitude + 0.006 },
-      { name: 'Green Valley Halal Foods', category: 'Halal Food', address: 'Halal shopping and food spot', latitude: latitude - 0.003, longitude: longitude - 0.006 }
-    ],
-    'Islamic Centers': [
-      { name: 'Al Noor Islamic Centre', category: 'Islamic Center', address: 'Community centre', latitude: latitude - 0.004, longitude: longitude + 0.006 },
-      { name: 'Muslim Community Hub', category: 'Islamic Center', address: 'Islamic learning centre', latitude: latitude + 0.005, longitude: longitude - 0.003 },
-      { name: 'Quran Learning Centre', category: 'Islamic Center', address: 'Islamic study centre', latitude: latitude - 0.006, longitude: longitude - 0.004 },
-      { name: 'Rahma Education Center', category: 'Islamic Center', address: 'Islamic education & events', latitude: latitude + 0.007, longitude: longitude + 0.005 }
-    ]
-  };
-
-  const overpass = `[out:json][timeout:30];(${query.replaceAll('R', String(radius * 1000)).replaceAll('LAT', latitude).replaceAll('LON', longitude)});out center tags;`;
   try {
-    const response = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', headers: { 'Content-Type': 'text/plain', 'User-Agent': 'Mauiza-Daily-Essentials/1.0' }, body: overpass });
-    if (!response.ok) throw new Error('Nearby places request failed');
-    const payload = await response.json();
-
-    const classifyPlace = (tags = {}) => {
-      const amenity = String(tags.amenity || '').toLowerCase();
-      const shop = String(tags.shop || '').toLowerCase();
-      const religion = String(tags.religion || '').toLowerCase();
-      const dietHalal = String(tags['diet:halal'] || '').toLowerCase();
-      const halalFlag = String(tags.halal || '').toLowerCase();
-      const cuisine = String(tags.cuisine || '').toLowerCase();
-
-      if (amenity === 'place_of_worship' || religion === 'muslim' || amenity === 'mosque') return 'Mosque';
-      if (amenity === 'community_centre' || amenity === 'islamic_center' || amenity === 'islamic centre') return 'Islamic Center';
-      if (shop === 'halal' || dietHalal === 'yes' || halalFlag === 'yes' || cuisine === 'arabian') return 'Halal Food';
-      return 'Mosque';
+    const radiusMeters = radius * 1000;
+    const center = { latitude, longitude };
+    const routingParameters = {
+      origin: center,
+      travelMode: 'DRIVE',
+      routingPreference: 'TRAFFIC_AWARE'
     };
+    const textSearchBody = (textQuery, includedType, rankPreference = 'DISTANCE') => ({
+      textQuery,
+      ...(includedType ? { includedType, strictTypeFiltering: true } : {}),
+      pageSize: 20,
+      rankPreference,
+      locationBias: { circle: { center, radius: radiusMeters } },
+      routingParameters,
+      languageCode: String(req.query.language || 'en').slice(0, 2)
+    });
+    const searches = {
+      Mosques: () => googleTextSearchAll(textSearchBody('mosques', 'mosque'), googleMapsApiKey),
+      'Halal Food': () => googleTextSearchMany([
+        textSearchBody('halal restaurant', null, 'RELEVANCE'),
+        textSearchBody('halal food', null, 'RELEVANCE')
+      ], googleMapsApiKey),
+      'Islamic Centers': () => googleTextSearchMany([
+        textSearchBody('Islamic center', null, 'RELEVANCE'),
+        textSearchBody('madrasa', null, 'RELEVANCE'),
+        textSearchBody('Islamic institute', null, 'RELEVANCE')
+      ], googleMapsApiKey)
+    };
+    const requestedCategories = category === 'All' ? Object.keys(searches) : [category];
+    const payloads = await Promise.all(requestedCategories.map(async (requestedCategory) => ({
+      requestedCategory,
+      pages: await searches[requestedCategory]()
+    })));
 
-    const results = (payload.elements || [])
-      .map((place) => {
-        const placeLatitude = place.lat ?? place.center?.lat;
-        const placeLongitude = place.lon ?? place.center?.lon;
-        const tags = place.tags || {};
-        const kind = classifyPlace(tags);
-        return {
-          id: `${place.type}-${place.id}`,
-          name: tags.name || 'Unnamed place',
-          address: [tags['addr:housenumber'], tags['addr:street'], tags['addr:city']].filter(Boolean).join(', ') || 'Address unavailable',
-          category: kind,
-          latitude: placeLatitude,
-          longitude: placeLongitude,
-          distanceKm: Number(distanceInKm(latitude, longitude, placeLatitude, placeLongitude).toFixed(1)),
-          directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${placeLatitude},${placeLongitude}`
-        };
-      })
-      .filter((place) => {
-        if (category === 'All') return true;
-        if (category === 'Mosques') return place.category === 'Mosque';
-        if (category === 'Halal Food') return place.category === 'Halal Food';
-        if (category === 'Islamic Centers') return place.category === 'Islamic Center';
-        return true;
-      })
-      .sort((a, b) => a.distanceKm - b.distanceKm);
+    const results = payloads.flatMap(({ requestedCategory, pages }) => pages.flatMap((payload) => (payload.places || []).map((place, index) => {
+      const placeLatitude = Number(place.location?.latitude);
+      const placeLongitude = Number(place.location?.longitude);
+      const aerialDistanceKm = distanceInKm(latitude, longitude, placeLatitude, placeLongitude);
+      const routeLeg = payload.routingSummaries?.[index]?.legs?.[0];
+      const routeDistanceMeters = typeof routeLeg?.distanceMeters === 'number' ? routeLeg.distanceMeters : null;
+      const travelDurationSeconds = parseGoogleDurationSeconds(routeLeg?.duration);
+      const hasCompleteRoute = routeDistanceMeters != null && Number.isFinite(travelDurationSeconds);
+      const resultCategory = requestedCategory === 'Mosques'
+        ? 'Mosque'
+        : requestedCategory === 'Islamic Centers' ? 'Islamic Center' : 'Halal Food';
+      const normalizedName = String(place.displayName?.text || '').toLowerCase();
+      const placeTypes = Array.isArray(place.types) ? place.types : [];
+      const isFoodPlace = /halal/.test(normalizedName) || placeTypes.some((type) => (
+        type.includes('restaurant')
+        || type.includes('food')
+        || type.includes('meal')
+        || type.includes('bakery')
+        || type.includes('cafe')
+        || type.includes('grocery')
+        || type.includes('butcher')
+      ));
+      const isIslamicCenter = /(islamic|muslim|markaz|madrasa|madrassa|madrasah|jamia|darul|dar al|quran|qur'an|قرآن|مدرس|اسلامی)/i.test(normalizedName);
 
-    const fallbackResults = (fallbackByCategory[category] || fallbackByCategory.All)
-      .map((place, index) => ({
-        id: `fallback-${category}-${index}`,
-        name: place.name,
-        address: place.address,
-        category: place.category,
-        latitude: place.latitude,
-        longitude: place.longitude,
-        distanceKm: Number(distanceInKm(latitude, longitude, place.latitude, place.longitude).toFixed(1)),
-        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}`
-      }))
-      .sort((a, b) => a.distanceKm - b.distanceKm);
+      return {
+        id: place.id,
+        name: place.displayName?.text || 'Unnamed place',
+        address: place.formattedAddress || 'Address unavailable',
+        category: resultCategory,
+        latitude: placeLatitude,
+        longitude: placeLongitude,
+        distanceKm: hasCompleteRoute ? Number((routeDistanceMeters / 1000).toFixed(1)) : null,
+        travelDurationMinutes: hasCompleteRoute ? Math.max(1, Math.round(travelDurationSeconds / 60)) : null,
+        travelTime: hasCompleteRoute ? formatTravelTime(travelDurationSeconds) : null,
+        distanceType: hasCompleteRoute ? 'driving' : null,
+        rating: Number.isFinite(place.rating) ? place.rating : null,
+        userRatingCount: Number.isFinite(place.userRatingCount) ? place.userRatingCount : null,
+        businessStatus: place.businessStatus || null,
+        directionsUrl: `https://www.google.com/maps/dir/?api=1&origin=${latitude},${longitude}&destination=${placeLatitude},${placeLongitude}&destination_place_id=${encodeURIComponent(place.id)}&travelmode=driving`,
+        googleMapsUrl: place.googleMapsUri || null,
+        aerialDistanceKm,
+        matchesCategory: requestedCategory === 'Halal Food'
+          ? isFoodPlace
+          : requestedCategory === 'Islamic Centers' ? isIslamicCenter : true
+      };
+    })))
+      .filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
+      .filter((place) => place.aerialDistanceKm <= radius + 0.05)
+      .filter((place) => place.matchesCategory)
+      .filter((place) => place.businessStatus !== 'CLOSED_PERMANENTLY');
 
-    const combinedResults = [...results]
-      .concat(fallbackResults)
-      .filter((place, index, array) => {
-        const key = `${place.name}-${place.category}`;
-        return array.findIndex((item) => `${item.name}-${item.category}` === key) === index;
-      })
-      .sort((a, b) => a.distanceKm - b.distanceKm);
+    const uniqueResults = results
+      .filter((place, index, array) => array.findIndex((item) => item.id === place.id) === index)
+      .sort((a, b) => (a.distanceKm ?? a.aerialDistanceKm) - (b.distanceKm ?? b.aerialDistanceKm))
+      .map(({ aerialDistanceKm: _aerialDistanceKm, matchesCategory: _matchesCategory, ...place }) => place);
 
-    return res.json({ results: combinedResults });
+    const responsePayload = {
+      results: uniqueResults,
+      source: 'Google Places',
+      distanceSource: 'Google driving routes',
+      center: { latitude, longitude },
+      radiusKm: radius
+    };
+    return res.json(responsePayload);
   } catch (error) {
-    const fallbackResults = (fallbackByCategory[category] || fallbackByCategory.All)
-      .map((place, index) => ({
-        id: `fallback-${category}-${index}`,
-        name: place.name,
-        address: place.address,
-        category: place.category,
-        latitude: place.latitude,
-        longitude: place.longitude,
-        distanceKm: Number(distanceInKm(latitude, longitude, place.latitude, place.longitude).toFixed(1)),
-        directionsUrl: `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}`
-      }))
-      .sort((a, b) => a.distanceKm - b.distanceKm);
-
-    return res.json({ results: fallbackResults });
+    console.error('Nearby places lookup failed:', error);
+    return res.status(502).json({ message: `Google Places could not be loaded: ${error.message || 'Please try again in a moment.'}` });
   }
 });
 
