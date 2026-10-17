@@ -93,88 +93,110 @@ app.get('/api/geocode', async (req, res) => {
   }
 });
 
+const halalGuidanceSource = {
+  name: 'Department of Halal Certification EU — Halal Food Guidelines',
+  url: 'https://halalcertification.ie/halal-food-guidelines/'
+};
+
 const halalIngredientRecords = [
-  { patterns: ['e120', 'carmine', 'cochineal'], classification: 'Potentially Haram', reason: 'Carmine/cochineal is a red colourant derived from insects. Seek a recognised halal certification if it is present.', source: 'Halal ingredient reference: insect-derived colourants' },
-  { patterns: ['e441', 'gelatin', 'gelatine'], classification: 'Requires Verification / Mushbooh', reason: 'Gelatin may come from fish, bovine, porcine, or other sources. The source and halal certification must be verified.', source: 'Halal ingredient reference: animal-derived gelatin' },
-  { patterns: ['e471', 'e472', 'mono- and diglycerides', 'mono and diglycerides'], classification: 'Requires Verification / Mushbooh', reason: 'Mono- and diglycerides can be produced from plant or animal fats. The source is not identifiable from the label alone.', source: 'Halal ingredient reference: emulsifiers' },
-  { patterns: ['e422', 'glycerol', 'glycerin', 'glycerine'], classification: 'Requires Verification / Mushbooh', reason: 'Glycerol can be plant-, synthetic-, or animal-derived. Ask the manufacturer about its source.', source: 'Halal ingredient reference: glycerol' },
-  { patterns: ['e904', 'shellac'], classification: 'Requires Verification / Mushbooh', reason: 'Shellac is a resin secreted by insects. Consult a trusted halal authority for the product context.', source: 'Halal ingredient reference: shellac' },
-  { patterns: ['e1105', 'lysozyme'], classification: 'Requires Verification / Mushbooh', reason: 'Lysozyme is commonly obtained from egg white, but source and processing should be verified.', source: 'Halal ingredient reference: enzymes' },
-  { patterns: ['e100', 'curcumin', 'e160a', 'beta-carotene', 'e300', 'ascorbic acid', 'e330', 'citric acid', 'e500', 'sodium bicarbonate', 'sugar', 'salt', 'flour'], classification: 'Generally Halal', reason: 'This ingredient is generally considered halal when no prohibited processing aids or additives are involved.', source: 'Halal ingredient reference: generally plant/mineral-derived ingredients' }
+  { patterns: ['pork', 'porcine', 'bacon', 'lard', 'pork fat', 'pork gelatin', 'pork gelatine', 'ham'], classification: 'Potentially Haram', reason: 'This explicitly names pork or a pork-derived ingredient, which is not halal.', guidance: 'Do not consume unless the label has been misread and the manufacturer confirms a different ingredient.' },
+  { patterns: ['blood', 'blood plasma', 'blood protein'], classification: 'Potentially Haram', reason: 'Blood and blood-derived food ingredients are not halal.', guidance: 'Avoid the product and verify unclear technical names with the manufacturer.' },
+  { patterns: ['wine', 'beer', 'rum', 'brandy', 'liqueur', 'ethyl alcohol', 'ethanol'], classification: 'Potentially Haram', reason: 'This names an alcoholic drink or intoxicating alcohol. Product context and residual levels can matter, so consult a trusted certifier for unusual technical uses.', guidance: 'Check the full product and certification rather than relying only on the ingredient name.' },
+  { patterns: ['e120', 'carmine', 'cochineal'], classification: 'Potentially Haram', reason: 'Carmine/cochineal (E120) is a colouring obtained from cochineal insects and is not accepted by the referenced certifier.', guidance: 'Choose a product using plant or synthetic colouring, or follow the ruling of your trusted halal authority.' },
+  { patterns: ['fish gelatin', 'fish gelatine'], classification: 'Generally Halal', reason: 'The gelatin source is explicitly identified as fish, which is generally an acceptable halal source.', guidance: 'Still check the complete product for other ingredients and cross-contamination.' },
+  { patterns: ['vegetable glycerin', 'vegetable glycerine', 'vegetable glycerol', 'plant glycerin'], classification: 'Generally Halal', reason: 'The glycerin source is explicitly identified as vegetable-derived.', guidance: 'Check the complete product if other high-risk ingredients are present.' },
+  { patterns: ['microbial rennet', 'vegetarian rennet', 'microbial enzyme', 'plant enzyme'], classification: 'Generally Halal', reason: 'The enzyme source is explicitly identified as microbial or plant-derived and is generally halal.', guidance: 'Check that the culture medium and complete product are halal-compliant when certification is important.' },
+  { patterns: ['gelatin', 'gelatine', 'e441', 'collagen', 'hydrolyzed collagen'], classification: 'Requires Verification / Mushbooh', reason: 'Gelatin and collagen are animal-derived. Fish sources can be acceptable; bovine sources require halal slaughter and processing verification; porcine sources are prohibited.', guidance: 'Look for a recognised halal certificate and a declared fish or halal-slaughtered animal source.' },
+  { patterns: ['mono and diglycerides', 'mono- and diglycerides', 'monoglycerides', 'diglycerides', 'e471', 'e472', 'e472a', 'e472b', 'e472c', 'e472d', 'e472e', 'e472f'], classification: 'Requires Verification / Mushbooh', reason: 'These emulsifiers can be made from plant oils or animal fats, and the ingredient name alone does not identify the source.', guidance: 'Confirm a vegetable source or recognised halal certification.' },
+  { patterns: ['glycerin', 'glycerine', 'glycerol', 'e422'], classification: 'Requires Verification / Mushbooh', reason: 'Glycerin/glycerol may be plant-derived, synthetic, or animal-derived.', guidance: 'Confirm that it is vegetable/synthetic or covered by halal certification.' },
+  { patterns: ['rennet', 'pepsin', 'lipase', 'enzymes', 'enzyme'], classification: 'Requires Verification / Mushbooh', reason: 'Food enzymes may be microbial, plant-derived, or animal-derived. Animal enzymes require an acceptable source and halal processing.', guidance: 'Ask for the enzyme source or a halal certificate.' },
+  { patterns: ['whey', 'whey protein', 'casein', 'caseinate', 'cheese powder'], classification: 'Requires Verification / Mushbooh', reason: 'Dairy ingredients can depend on the enzymes or rennet used during cheese production.', guidance: 'Verify the rennet/enzyme source or select a halal-certified product.' },
+  { patterns: ['natural flavor', 'natural flavour', 'artificial flavor', 'artificial flavour', 'flavoring', 'flavouring', 'vanilla extract'], classification: 'Requires Verification / Mushbooh', reason: 'Flavour systems can contain animal-derived carriers or alcohol that are not disclosed by the general ingredient name.', guidance: 'Request the flavour specification or rely on recognised halal certification.' },
+  { patterns: ['shortening', 'animal fat', 'tallow', 'suet', 'stearic acid', 'e570', 'magnesium stearate', 'e572'], classification: 'Requires Verification / Mushbooh', reason: 'These fats or fatty-acid derivatives may come from plant or animal sources.', guidance: 'Confirm vegetable origin or halal-certified animal origin.' },
+  { patterns: ['l-cysteine', 'l cysteine', 'cysteine', 'e920'], classification: 'Requires Verification / Mushbooh', reason: 'L-cysteine can be produced synthetically or obtained from animal or human-derived material.', guidance: 'Confirm a synthetic, fermentation-derived, or halal-certified source.' },
+  { patterns: ['disodium inosinate', 'e631', 'disodium guanylate', 'e627', 'disodium ribonucleotides', 'e635'], classification: 'Requires Verification / Mushbooh', reason: 'These flavour enhancers may be produced by fermentation or from animal/fish material.', guidance: 'Verify the manufacturing source or halal certification.' },
+  { patterns: ['e153', 'carbon black', 'vegetable carbon'], classification: 'Requires Verification / Mushbooh', reason: 'E153 can be produced from vegetable material or animal bone, so the source matters.', guidance: 'Confirm that it is vegetable carbon rather than bone-derived.' },
+  { patterns: ['e160e', 'beta-apo-8-carotenal', 'apocarotenal', 'e160a', 'beta-carotene'], classification: 'Requires Verification / Mushbooh', reason: 'The colour itself can be plant/synthetic, but some preparations use gelatin or animal fat as a carrier.', guidance: 'Verify the carrier or use a halal-certified product.' },
+  { patterns: ['shellac', 'e904'], classification: 'Requires Verification / Mushbooh', reason: 'Shellac is an insect-derived glazing agent, and scholarly/certifier rulings can differ.', guidance: 'Follow a trusted halal authority or choose an alternative glaze.' },
+  { patterns: ['agar agar', 'agar-agar', 'e406'], classification: 'Generally Halal', reason: 'Agar is a seaweed-derived gelling agent commonly used as a plant alternative to gelatin.' },
+  { patterns: ['carrageenan', 'e407'], classification: 'Generally Halal', reason: 'Carrageenan is a seaweed-derived thickener and gelling agent.' },
+  { patterns: ['pectin', 'e440'], classification: 'Generally Halal', reason: 'Pectin is a plant-derived gelling ingredient.' },
+  { patterns: ['xanthan gum', 'e415'], classification: 'Generally Halal', reason: 'Xanthan gum is produced by microbial fermentation and is generally halal, subject to the full formulation and processing aids.' },
+  { patterns: ['cellulose gum', 'carboxymethyl cellulose', 'e466'], classification: 'Generally Halal', reason: 'Cellulose gum is a plant-derived/synthetic cellulose ingredient and is generally halal.' },
+  { patterns: ['soy lecithin', 'soya lecithin', 'sunflower lecithin'], classification: 'Generally Halal', reason: 'The declared lecithin source is plant-based.' },
+  { patterns: ['ascorbic acid', 'vitamin c', 'e300', 'citric acid', 'e330', 'sodium bicarbonate', 'baking soda', 'e500', 'curcumin', 'e100'], classification: 'Generally Halal', reason: 'This is generally obtained from plant, mineral, fermentation, or synthetic sources and is ordinarily halal.' },
+  { patterns: ['water', 'salt', 'sugar', 'rice', 'flour', 'corn starch', 'cornstarch', 'potato starch', 'olive oil', 'sunflower oil', 'canola oil', 'palm oil', 'coconut oil'], classification: 'Generally Halal', reason: 'This is a common plant- or mineral-derived ingredient and is generally halal in its basic form.' }
 ];
 
-function ingredientTokens(value) {
-  return [...new Set(String(value || '').toLowerCase().match(/e\s*-?\s*\d{3,4}|[a-z][a-z -]{2,}/g)?.map((item) => item.replace(/\s+/g, ' ').trim()) || [])];
+function normalizeIngredient(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/e\s*-?\s*(\d{3,4}[a-f]?)/g, 'e$1')
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function hasIngredientPattern(value, pattern) {
+  const normalizedPattern = normalizeIngredient(pattern);
+  const escaped = normalizedPattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^a-z0-9])${escaped}($|[^a-z0-9])`, 'i').test(value);
 }
 
 function splitIngredientEntries(value) {
-  return [...new Set(String(value || '').split(/[\n,;]+/).map((item) => item.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean))];
+  return [...new Set(String(value || '').split(/[\n,;]+/).map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean))];
 }
 
 app.post('/api/halal/analyze', (req, res) => {
   const rawIngredients = String(req.body?.ingredients || '').trim();
   if (!rawIngredients) return res.status(400).json({ message: 'Ingredient text is required.' });
+  if (rawIngredients.length > 10000) return res.status(413).json({ message: 'The ingredient list is too long. Check up to 100 ingredients at a time.' });
 
   const ingredientEntries = splitIngredientEntries(rawIngredients);
+  if (ingredientEntries.length > 100) return res.status(413).json({ message: 'Check up to 100 ingredients at a time.' });
 
   const results = ingredientEntries.map((entry) => {
-    const normalized = entry.toLowerCase().replace(/e\s*-?\s*(\d{3,4})/g, 'e$1');
-    const matchingRecord = halalIngredientRecords.find((record) => record.patterns.some((pattern) => normalized.includes(pattern.toLowerCase())));
+    const normalized = normalizeIngredient(entry);
+    const inputENumber = normalized.match(/(^|[^a-z0-9])(e\d{3,4}[a-f]?)($|[^a-z0-9])/i)?.[2]?.toUpperCase();
+    const matchingRecord = halalIngredientRecords.find((record) => record.patterns.some((pattern) => hasIngredientPattern(normalized, pattern)));
 
     if (matchingRecord) {
-      const pattern = matchingRecord.patterns.find((item) => normalized.includes(item.toLowerCase()));
+      const pattern = matchingRecord.patterns.find((item) => hasIngredientPattern(normalized, item));
+      const eNumber = normalizeIngredient(pattern).match(/^e\d{3,4}[a-f]?$/)?.[0]?.toUpperCase();
       return {
-        name: pattern && /^e\d+$/.test(pattern) ? `Additive ${pattern.toUpperCase()}` : (pattern || entry).replace(/\b\w/g, (letter) => letter.toUpperCase()),
-        eNumber: /^e\d+$/.test(pattern || '') ? pattern.toUpperCase() : undefined,
+        name: entry,
+        eNumber: inputENumber || eNumber,
         classification: matchingRecord.classification,
         reason: matchingRecord.reason,
-        source: matchingRecord.source
+        guidance: matchingRecord.guidance || 'Check the complete product label and certification if other high-risk ingredients are present.',
+        source: halalGuidanceSource.name,
+        sourceUrl: halalGuidanceSource.url
       };
     }
 
-    const lowerEntry = entry.toLowerCase();
-    const strongHaram = ['bear', 'pork', 'bacon', 'ham', 'lard', 'suet', 'cochineal', 'carmine', 'blood'];
-    const strongHalal = ['sugar', 'salt', 'flour', 'water', 'olive oil', 'palm oil', 'rice', 'corn starch', 'cornstarch', 'citric acid', 'ascorbic acid', 'sodium bicarbonate', 'beta-carotene', 'curcumin'];
-
-    if (strongHaram.some((term) => lowerEntry.includes(term))) {
-      return {
-        name: entry.replace(/\b\w/g, (letter) => letter.toUpperCase()),
-        classification: 'Potentially Haram',
-        reason: 'This ingredient is commonly associated with animal-based or restricted sources and should be checked before use.',
-        source: 'Mauiza ingredient reference — restricted ingredient list'
-      };
-    }
-
-    if (strongHalal.some((term) => lowerEntry.includes(term))) {
-      return {
-        name: entry.replace(/\b\w/g, (letter) => letter.toUpperCase()),
-        classification: 'Generally Halal',
-        reason: 'This ingredient is usually accepted as halal when no prohibited processing aids or cross-contamination are involved.',
-        source: 'Mauiza ingredient reference — common halal ingredient list'
-      };
-    }
-
-    const token = ingredientTokens(entry).find((item) => /^e\s*-?\s*\d{3,4}$/.test(item));
-    if (token) {
-      const eNumber = token.replace(/\s|-/g, '').toUpperCase();
-      return {
-        name: `Additive ${eNumber}`,
-        eNumber,
-        classification: 'Requires Verification / Mushbooh',
-        reason: 'This E-number was detected, but no verified record is available in the configured reference set. Check the manufacturer and recognised halal certification.',
-        source: 'Mauiza ingredient reference — record unavailable'
-      };
-    }
+    const eNumber = inputENumber;
 
     return {
-      name: entry.replace(/\b\w/g, (letter) => letter.toUpperCase()),
+      name: entry,
+      eNumber,
       classification: 'Requires Verification / Mushbooh',
-      reason: 'This ingredient did not match the current halal reference list. Please confirm the source and packaging information before relying on it.',
-      source: 'Mauiza ingredient reference — no match found'
+      reason: eNumber
+        ? `${eNumber} is not yet covered by this reference set. An E-number alone does not establish whether its source and processing are halal.`
+        : 'This ingredient is not yet covered by the checker, or its halal status depends on source and processing information not present in the name.',
+      guidance: 'Check the manufacturer specification and a recognised halal certificate. Do not treat an unknown result as halal or haram.',
+      source: halalGuidanceSource.name,
+      sourceUrl: halalGuidanceSource.url
     };
   });
 
-  res.json({ results });
+  const summary = results.reduce((counts, result) => {
+    if (result.classification === 'Generally Halal') counts.generallyHalal += 1;
+    else if (result.classification === 'Potentially Haram') counts.potentiallyHaram += 1;
+    else counts.requiresVerification += 1;
+    return counts;
+  }, { generallyHalal: 0, requiresVerification: 0, potentiallyHaram: 0 });
+
+  res.json({ results, summary, disclaimer: 'Ingredient screening is educational and is not a halal certification or religious ruling. Final product status also depends on sub-ingredients, processing aids, cross-contamination, and recognised certification.' });
 });
 
 app.post('/api/halal/ocr', async (req, res) => {
