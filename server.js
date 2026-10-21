@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import nodemailer from 'nodemailer';
+import { createNearbyPlacesHandlers } from './services/nearbyPlaces.js';
 
 dotenv.config();
 
@@ -53,6 +54,10 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+const nearbyPlaces = createNearbyPlacesHandlers({ mongoose });
+app.get('/api/nearby-places', nearbyPlaces.search);
+app.post('/api/nearby-places/:osmType/:osmId/report', nearbyPlaces.report);
 
 app.get('/', (_req, res) => {
   res.json({
@@ -144,7 +149,14 @@ function hasIngredientPattern(value, pattern) {
 }
 
 function splitIngredientEntries(value) {
-  return [...new Set(String(value || '').split(/[\n,;]+/).map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean))];
+  const entries = []; let token = '', depth = 0;
+  const push = () => { const item = token.replace(/^\s*ingredients?\s*:\s*/i, '').replace(/\b\d+(?:[.,]\d+)?\s*%/g, '').replace(/\s+/g, ' ').trim(); if (item) entries.push(item); token = ''; };
+  for (const character of String(value || '')) {
+    if ('([{'.includes(character)) depth += 1;
+    if (')]}'.includes(character)) depth = Math.max(0, depth - 1);
+    if (!depth && /[,;\n、，؛]/.test(character)) push(); else token += character;
+  }
+  push(); return [...new Map(entries.map(item => [item.toLowerCase(), item])).values()].slice(0, 120);
 }
 
 app.post('/api/halal/analyze', (req, res) => {
