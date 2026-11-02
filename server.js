@@ -500,9 +500,6 @@ const contactSchema = new mongoose.Schema({
 const registrationSchema = new mongoose.Schema({
   fullName: String,
   email: String,
-  phoneCountryCode: String,
-  phoneNumber: String,
-  phone: String,
   country: String,
   ageGroup: String,
   gender: String,
@@ -520,9 +517,6 @@ const registrationSchema = new mongoose.Schema({
 const volunteerSchema = new mongoose.Schema({
   fullName: String,
   email: String,
-  phoneCountryCode: String,
-  phoneNumber: String,
-  phone: String,
   country: String,
   profession: String,
   designation: String,
@@ -649,9 +643,6 @@ app.post('/api/registration', async (req, res) => {
     const {
       fullName,
       email,
-      phoneCountryCode,
-      phoneNumber,
-      phone,
       country,
       ageGroup,
       gender,
@@ -668,20 +659,12 @@ app.post('/api/registration', async (req, res) => {
 
     const cleanedFullName = fullName || name || '';
 
-    if ([cleanedFullName, email, phoneCountryCode, phoneNumber, phone, country, ageGroup, gender, timezone, instructionLanguage, faith, course, startTime, endTime, goals]
+    if ([cleanedFullName, email, country, ageGroup, gender, timezone, instructionLanguage, faith, course, startTime, endTime, goals]
       .some((value) => typeof value !== 'string' || !value.trim())) {
       return res.status(400).json({ message: 'Please complete all required registration fields.' });
     }
 
     const cleanedEmail = email.trim();
-    const cleanedPhoneCountryCode = phoneCountryCode.trim();
-    const cleanedPhoneNumber = phoneNumber.trim();
-    const cleanedPhone = phone.trim();
-    if (!/^\+[1-9]\d{0,2}$/.test(cleanedPhoneCountryCode)
-      || !/^\+[1-9]\d{1,14}$/.test(cleanedPhone)
-      || !cleanedPhone.startsWith(cleanedPhoneCountryCode)) {
-      return res.status(400).json({ message: 'The phone number must match the selected country code.' });
-    }
     const cleanedCountry = country.trim();
     const cleanedAgeGroup = ageGroup.trim();
     const cleanedGender = gender.trim();
@@ -697,9 +680,6 @@ app.post('/api/registration', async (req, res) => {
     const saved = await RegistrationEntry.create({
       fullName: cleanedFullName,
       email: cleanedEmail,
-      phoneCountryCode: cleanedPhoneCountryCode,
-      phoneNumber: cleanedPhoneNumber,
-      phone: cleanedPhone,
       country: cleanedCountry,
       ageGroup: cleanedAgeGroup,
       gender: cleanedGender,
@@ -716,9 +696,6 @@ app.post('/api/registration', async (req, res) => {
     const emailText = [
       `Full Name: ${cleanedFullName}`,
       `Email: ${email}`,
-      `WhatsApp Country Code: ${cleanedPhoneCountryCode}`,
-      `WhatsApp Local Number: ${cleanedPhoneNumber}`,
-      `WhatsApp Number (international): ${cleanedPhone}`,
       `Country: ${country}`,
       `Age Group: ${ageGroup}`,
       `Gender: ${gender}`,
@@ -740,9 +717,6 @@ app.post('/api/registration', async (req, res) => {
           <h3>New Registration</h3>
           <p><strong>Full Name:</strong> ${cleanedFullName}</p>
           <p><strong>Email:</strong> ${email}</p>
-          <p><strong>WhatsApp Country Code:</strong> ${cleanedPhoneCountryCode}</p>
-          <p><strong>WhatsApp Local Number:</strong> ${cleanedPhoneNumber}</p>
-          <p><strong>WhatsApp Number (international):</strong> ${cleanedPhone}</p>
           <p><strong>Country:</strong> ${country}</p>
           <p><strong>Age Group:</strong> ${ageGroup}</p>
           <p><strong>Gender:</strong> ${gender}</p>
@@ -772,9 +746,6 @@ app.post('/api/volunteers', async (req, res) => {
       fullName,
       name,
       email,
-      phoneCountryCode,
-      phoneNumber,
-      phone,
       country,
       profession,
       designation,
@@ -795,18 +766,10 @@ app.post('/api/volunteers', async (req, res) => {
 
     const cleanedFullName = (fullName || name || '').trim();
     const allowedDesignations = ['Teacher', 'Video Editor', 'Media Manager'];
-    const commonFields = [cleanedFullName, email, phoneCountryCode, phoneNumber, phone, country, profession, designation, ageGroup, gender, timezone, faith, instructionLanguage, startTime, endTime, availability, goals];
+    const commonFields = [cleanedFullName, email, country, profession, designation, ageGroup, gender, timezone, faith, instructionLanguage, startTime, endTime, availability, goals];
 
     if (commonFields.some((value) => typeof value !== 'string' || !value.trim()) || !allowedDesignations.includes(designation)) {
       return res.status(400).json({ message: 'Please complete all required volunteer fields.' });
-    }
-
-    const cleanedPhoneCountryCode = phoneCountryCode.trim();
-    const cleanedPhone = phone.trim();
-    if (!/^\+[1-9]\d{0,2}$/.test(cleanedPhoneCountryCode)
-      || !/^\+[1-9]\d{1,14}$/.test(cleanedPhone)
-      || !cleanedPhone.startsWith(cleanedPhoneCountryCode)) {
-      return res.status(400).json({ message: 'The phone number must match the selected country code.' });
     }
 
     const roleField = designation === 'Teacher'
@@ -826,9 +789,6 @@ app.post('/api/volunteers', async (req, res) => {
     const cleaned = Object.fromEntries(Object.entries({
       fullName: cleanedFullName,
       email,
-      phoneCountryCode,
-      phoneNumber,
-      phone,
       country,
       profession,
       designation,
@@ -854,9 +814,6 @@ app.post('/api/volunteers', async (req, res) => {
       '',
       `Full Name: ${cleaned.fullName}`,
       `Email: ${cleaned.email}`,
-      `WhatsApp Country Code: ${cleaned.phoneCountryCode}`,
-      `WhatsApp Local Number: ${cleaned.phoneNumber}`,
-      `WhatsApp Number (international): ${cleaned.phone}`,
       `Country: ${cleaned.country}`,
       `Profession: ${cleaned.profession}`,
       `Designation: ${cleaned.designation}`,
@@ -882,9 +839,6 @@ app.post('/api/volunteers', async (req, res) => {
           <h3>New Volunteer Application</h3>
           <p><strong>Full Name:</strong> ${cleaned.fullName}</p>
           <p><strong>Email:</strong> ${cleaned.email}</p>
-          <p><strong>WhatsApp Country Code:</strong> ${cleaned.phoneCountryCode}</p>
-          <p><strong>WhatsApp Local Number:</strong> ${cleaned.phoneNumber}</p>
-          <p><strong>WhatsApp Number (international):</strong> ${cleaned.phone}</p>
           <p><strong>Country:</strong> ${cleaned.country}</p>
           <p><strong>Profession:</strong> ${cleaned.profession}</p>
           <p><strong>Designation:</strong> ${cleaned.designation}</p>
