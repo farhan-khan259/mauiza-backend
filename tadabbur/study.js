@@ -6,10 +6,27 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { problem } from './quran.js';
 import { rootReference, wordStudy } from './roots.js';
-import { ayahKey, passage, reciters, englishTafsir, tafsirOptions, translationOptions, verse } from './content.js';
+import { ayahKey, chapters as quranChapters, passage, reciters, englishTafsir, tafsirOptions, translationOptions, verse } from './content.js';
 
 export const phases = ['Read', 'Reflect', 'Reveal', 'Discuss'];
 const initialPassage = { label: 'Al-Fatihah', keys: ['1:5', '1:6', '1:7'] };
+
+export function adjacentAyahKey(value, direction, chapters) {
+  if (direction !== -1 && direction !== 1) throw problem(400, 'Choose a valid navigation direction.');
+  const [chapterId, verseNumber] = ayahKey(value).split(':').map(Number);
+  const index = chapters.findIndex(chapter => chapter.id === chapterId);
+  const chapter = chapters[index];
+  if (!chapter || verseNumber > chapter.count) throw problem(400, 'The current ayah is unavailable.');
+  if (direction === -1) {
+    if (verseNumber > 1) return `${chapter.id}:${verseNumber - 1}`;
+    const previous = chapters[index - 1];
+    return previous ? `${previous.id}:${previous.count}` : null;
+  }
+  if (verseNumber < chapter.count) return `${chapter.id}:${verseNumber + 1}`;
+  const next = chapters[index + 1];
+  return next ? `${next.id}:1` : null;
+}
+
 const Document = mongoose.model('TadabburStudyDocument', new Schema({
   _id: String, room: { type: String, index: true }, owner: String, ownerName: String,
   name: String, type: String, data: { type: Buffer, select: false }, gridFsId: String, size: Number, shared: Boolean
@@ -161,6 +178,10 @@ export function registerStudyRoutes(router, { asHandler, roomFor, protect, write
     res.json({ study: publicStudy(next), revision: next.revision });
   }
 
+  router.get('/rooms/:id/study/chapters', handle(async (_req, res) => {
+    res.json(await quranChapters());
+  }));
+
   router.get('/rooms/:id/study/verse', handle(async (req, res, _room, _member, study) => {
     const key = ayahKey(req.query.key || study.selection.keys[study.index]);
     const index = study.selection.keys.indexOf(key);
@@ -210,6 +231,18 @@ export function registerStudyRoutes(router, { asHandler, roomFor, protect, write
   router.post('/rooms/:id/study/lead', handle(async (req, res, room, _member, study) => {
     const { action, value } = req.body;
     if (action === 'phase' && phases.includes(value)) return update(req, res, room, study, { phase: value });
+    if (action === 'ayah-step' && (value === -1 || value === 1)) {
+      const chapters = await quranChapters();
+      const key = study.selection.keys[study.index];
+      const nextKey = adjacentAyahKey(key, value, chapters);
+      if (!nextKey) {
+        res.json({ study: publicStudy(room), revision: room.revision });
+        return;
+      }
+      const [chapter, first] = nextKey.split(':').map(Number);
+      const selection = await passage({ chapter, first, last: first });
+      return update(req, res, room, study, { selection, index: 0, recitation: null });
+    }
     if (action === 'ayah' && Number.isInteger(value) && study.selection.keys[value]) {
       return update(req, res, room, study, { index: value, recitation: null });
     }

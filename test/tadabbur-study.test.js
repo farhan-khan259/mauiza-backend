@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { exactTafsir, tafsir, tafsirOptions, verse } from '../tadabbur/content.js';
 import { wordStudy } from '../tadabbur/roots.js';
-import { studyState } from '../tadabbur/study.js';
+import { adjacentAyahKey, studyState } from '../tadabbur/study.js';
 import { insertNote } from '../../mauiza-frontend/src/pages/Tadabbur/noteInsertion.js';
 
 test('Corpus and Lughat join at the selected word address', async () => {
@@ -72,6 +72,16 @@ test('Legacy Act rooms resolve to Discuss without removing saved notes', () => {
   const study = studyState({ study: { phase: 'Act', notes } });
   assert.equal(study.phase, 'Discuss');
   assert.equal(study.notes, notes);
+});
+
+test('Ayah navigation moves across verses and surah boundaries, stopping at Quran ends', () => {
+  const chapters = [{ id: 1, count: 7 }, { id: 2, count: 286 }, { id: 3, count: 200 }];
+  assert.equal(adjacentAyahKey('2:5', -1, chapters), '2:4');
+  assert.equal(adjacentAyahKey('2:1', -1, chapters), '1:7');
+  assert.equal(adjacentAyahKey('1:7', 1, chapters), '2:1');
+  assert.equal(adjacentAyahKey('1:1', -1, chapters), null);
+  assert.equal(adjacentAyahKey('3:200', 1, chapters), null);
+  assert.throws(() => adjacentAyahKey('2:287', 1, chapters), { status: 400 });
 });
 
 test('Note insertion preserves surrounding content and keeps source links', () => {
