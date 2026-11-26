@@ -78,6 +78,35 @@ test('Document deletion is scoped to the room and requires ownership or host rig
   assert.equal(remove.mock.callCount(), 1);
 });
 
+test('Document byte ranges return only requested bytes and reject unsupported ranges', async t => {
+  const Document = mongoose.model('TadabburStudyDocument');
+  const data = Buffer.from('0123456789');
+  t.mock.method(Document, 'findOne', () => ({ select: () => Promise.resolve({ type: 'application/pdf', data }) }));
+  let status, headers, body;
+  const res = {
+    status(code) { status = code; return this; },
+    set(name, value) {
+      headers = typeof name === 'string' ? { ...headers, [name]: value } : { ...headers, ...name };
+      return this;
+    },
+    end(value) { body = value; }
+  };
+  await routes.get('get /rooms/:id/study/documents/:document')({
+    params: { document: 'pdf' }, headers: { range: 'bytes=2-6' }, member: { _id: 'host' }
+  }, res);
+  assert.equal(status, 206);
+  assert.equal(headers['Content-Range'], 'bytes 2-6/10');
+  assert.equal(headers['Content-Length'], '5');
+  assert.equal(body.toString(), '23456');
+  status = undefined;
+  headers = undefined;
+  await routes.get('get /rooms/:id/study/documents/:document')({
+    params: { document: 'pdf' }, headers: { range: 'bytes=50-' }, member: { _id: 'host' }
+  }, res);
+  assert.equal(status, 416);
+  assert.equal(headers['Content-Range'], 'bytes */10');
+});
+
 test('Camera framing zooms distant subjects while keeping the crop on screen', () => {
   assert.deepEqual(cameraCrop(null, 640, 360), [0, 0, 640, 360]);
   const [x, y, w, h] = cameraCrop({ x: 600, y: 10, width: 20, height: 28 }, 640, 360, true);

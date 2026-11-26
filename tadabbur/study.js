@@ -2,6 +2,8 @@ import { ayahContext } from './context.js';
 import express from 'express';
 import mongoose, { Schema } from 'mongoose';
 import { createHash, randomUUID } from 'node:crypto';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { problem } from './quran.js';
 import { rootReference, wordStudy } from './roots.js';
 import { ayahKey, passage, reciters, englishTafsir, tafsirOptions, translationOptions, verse } from './content.js';
@@ -10,8 +12,19 @@ export const phases = ['Read', 'Reflect', 'Reveal', 'Discuss'];
 const initialPassage = { label: 'Al-Fatihah', keys: ['1:5', '1:6', '1:7'] };
 const Document = mongoose.model('TadabburStudyDocument', new Schema({
   _id: String, room: { type: String, index: true }, owner: String, ownerName: String,
-  name: String, type: String, data: { type: Buffer, select: false }, shared: Boolean
+  name: String, type: String, data: { type: Buffer, select: false }, gridFsId: String, size: Number, shared: Boolean
 }, { timestamps: true }));
+let gridFsDatabase;
+let gridFsBucket;
+function documentBucket() {
+  const database = mongoose.connection.db;
+  if (!database) throw problem(503, 'Room storage is temporarily unavailable.');
+  if (database !== gridFsDatabase) {
+    gridFsDatabase = database;
+    gridFsBucket = new mongoose.mongo.GridFSBucket(database, { bucketName: 'tadabburStudyDocuments' });
+  }
+  return gridFsBucket;
+}
 const documentReaders = new Map();
 const sweepReaders = setInterval(() => {
   for (const [room, readers] of documentReaders) {
@@ -88,16 +101,50 @@ function identify(file) {
   return '';
 }
 
-function documentInfo(record) {
-  return { id: record._id, owner: record.owner, ownerName: record.ownerName, name: record.name, type: record.type, shared: record.shared };
+function inspectDocumentType() {
+  let header = Buffer.alloc(0);
+  let type = '';
+  let size = 0;
+  const stream = new Transform({
+    transform(chunk, _encoding, callback) {
+      size += chunk.length;
+      if (header.length === 12) return callback(null, chunk);
+      const prefixLength = Math.min(12 - header.length, chunk.length);
+      const remainder = chunk.subarray(prefixLength);
+      header = Buffer.concat([header, chunk.subarray(0, prefixLength)]);
+      if (header.length < 12) return callback();
+      type = identify(header);
+      if (!type) return callback(problem(400, 'Choose a PDF, PNG, JPEG or WebP file.'));
+      callback(null, remainder.length ? Buffer.concat([header, remainder]) : header);
+    },
+    flush(callback) {
+      if (!type) {
+        type = identify(header);
+        if (!type) return callback(problem(400, 'Choose a PDF, PNG, JPEG or WebP file.'));
+        this.push(header);
+      }
+      callback();
+    }
+  });
+  return { stream, get type() { return type; }, get size() { return size; } };
+}
+
+async function documentInfo(record) {
+  let size = record.size ?? record.data?.length;
+  if (size == null && record.gridFsId) {
+    const file = await documentBucket().find({ _id: record.gridFsId }).next();
+    size = file?.length;
+  }
+  if (!Number.isSafeInteger(size) || size <= 0) throw problem(500, 'Stored document size is unavailable.');
+  return { id: record._id, owner: record.owner, ownerName: record.ownerName, name: record.name, type: record.type, size, shared: record.shared };
 }
 
 export function registerStudyRoutes(router, { asHandler, roomFor, protect, write, notify }) {
   function handle(fn, options) {
-    return asHandler(async (req, res) => {
+    return asHandler(async (req, res, next) => {
       const room = await roomFor(req);
       const member = protect(req, room, options);
-      return fn(req, res, room, member, studyState(room));
+      return fn(req, res, room, member, studyState(room), next);
     });
   }
   async function update(req, res, room, study, changes) {
@@ -214,20 +261,38 @@ export function registerStudyRoutes(router, { asHandler, roomFor, protect, write
   }));
 
   router.get('/rooms/:id/study/documents', handle(async (_req, res, room, member) => {
-    const documents = await Document.find({ room: room._id, $or: [{ owner: member._id }, { shared: true }] }).sort('createdAt');
-    res.json(documents.map(documentInfo));
+    const documents = await Document.find({ room: room._id, $or: [{ owner: member._id }, { shared: true }] }).select('+data').sort('createdAt');
+    res.json(await Promise.all(documents.map(documentInfo)));
   }));
 
-  router.post('/rooms/:id/study/documents', express.raw({ type: 'application/octet-stream', limit: '8mb' }),
-    handle(async (req, res, room, member) => {
-      const file = req.body;
-      const name = typeof req.query.name === 'string' ? req.query.name.replace(/[\u0000-\u001f]/g, '').slice(0, 120) : '';
-      const type = Buffer.isBuffer(file) && identify(file);
-      if (!type || !name) throw problem(400, 'Choose a PDF, PNG, JPEG or WebP file up to 8 MB.');
-      if (await Document.countDocuments({ room: room._id, owner: member._id }) >= 6) throw problem(409, 'You can upload up to six documents per room.');
-      const record = await Document.create({ _id: randomUUID(), room: room._id, owner: member._id, ownerName: member.name, name, type, data: file, shared: false });
-      res.status(201).json(documentInfo(record));
-    }));
+  router.post('/rooms/:id/study/documents', handle(async (req, res, room, member) => {
+    const name = typeof req.query.name === 'string' ? req.query.name.replace(/[\u0000-\u001f]/g, '').slice(0, 120) : '';
+    if (!name) throw problem(400, 'Choose a document file.');
+    const id = randomUUID();
+    const bucket = documentBucket();
+    const upload = bucket.openUploadStreamWithId(id, name);
+    const inspected = inspectDocumentType();
+    let record;
+    try {
+      await pipeline(req, inspected.stream, upload);
+      record = await Document.create({
+        _id: id, room: room._id, owner: member._id, ownerName: member.name,
+        name, type: inspected.type, gridFsId: id, size: inspected.size, shared: false
+      });
+    } catch (error) {
+      try {
+        await upload.abort();
+      } catch {
+        try {
+          await bucket.delete(id);
+        } catch (cleanupError) {
+          console.error('Mauiza document upload cleanup:', cleanupError.message);
+        }
+      }
+      throw error;
+    }
+    res.status(201).json(await documentInfo(record));
+  }));
 
   router.delete('/rooms/:id/study/documents/:document', handle(async (req, res, room, member, study) => {
     const id = req.params.document;
@@ -235,15 +300,52 @@ export function registerStudyRoutes(router, { asHandler, roomFor, protect, write
     if (!record) throw problem(404, 'Document not found.');
     if (record.owner !== member._id && room.creatorId !== member._id) throw problem(403, 'Only the owner or host can delete this document.');
     const next = await write(room, study.document?.id === id ? { study: { ...study, document: null } } : {});
+    if (record.gridFsId) await documentBucket().delete(record.gridFsId);
     await Document.deleteOne({ _id: id, room: room._id });
     notify(req, next);
     res.json({ deleted: true });
   }));
 
-  router.get('/rooms/:id/study/documents/:document', handle(async (req, res, room, member) => {
+  router.get('/rooms/:id/study/documents/:document', handle(async (req, res, room, member, _study, next) => {
     const record = await Document.findOne({ _id: req.params.document, room: room._id, $or: [{ owner: member._id }, { shared: true }] }).select('+data');
     if (!record) throw problem(404, 'Document not found.');
-    res.set({ 'Content-Type': record.type, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store' }).send(record.data);
+    res.set({ 'Content-Type': record.type, 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'private, no-store', 'Accept-Ranges': 'bytes' });
+    const range = req.headers.range;
+    if (!range) {
+      if (!record.gridFsId) return res.send(record.data);
+      const download = documentBucket().openDownloadStream(record.gridFsId);
+      download.on('error', error => {
+        if (res.headersSent) res.destroy(error);
+        else next(error);
+      });
+      return download.pipe(res);
+    }
+    let size = record.size ?? record.data?.length;
+    if (size == null && record.gridFsId) {
+      const file = await documentBucket().find({ _id: record.gridFsId }).next();
+      size = file?.length;
+    }
+    const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+    if (!Number.isSafeInteger(size) || size <= 0 || !match) {
+      return res.status(416).set('Content-Range', `bytes */${size || 0}`).end();
+    }
+    const start = Number(match[1]);
+    const requestedEnd = match[2] ? Number(match[2]) + 1 : size;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd) || start >= size || requestedEnd <= start) {
+      return res.status(416).set('Content-Range', `bytes */${size}`).end();
+    }
+    const end = Math.min(requestedEnd, size);
+    res.status(206).set({
+      'Content-Range': `bytes ${start}-${end - 1}/${size}`,
+      'Content-Length': String(end - start)
+    });
+    if (!record.gridFsId) return res.end(record.data.subarray(start, end));
+    const download = documentBucket().openDownloadStream(record.gridFsId, { start, end });
+    download.on('error', error => {
+      if (res.headersSent) res.destroy(error);
+      else next(error);
+    });
+    download.pipe(res);
   }));
 
   router.post('/rooms/:id/study/present', handle(async (req, res, room, member, study) => {
