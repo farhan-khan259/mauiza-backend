@@ -44,23 +44,51 @@ test('Roots return local Corpus details only for a matching reference', async ()
   assert.equal(await rootReference('1:5:4', '1:5:2'), null);
 });
 
-test('Typed translation sends text to Microsoft and returns provider-detected language', async t => {
-  const saved = process.env.TADABBUR_TRANSLATOR_KEY;
-  process.env.TADABBUR_TRANSLATOR_KEY = 'test-key';
+test('Typed translation uses Google Cloud Translation and returns detected language', async t => {
+  const savedGoogleKey = process.env.GOOGLE_TRANSLATE_API_KEY;
+  process.env.GOOGLE_TRANSLATE_API_KEY = 'google-test-key';
   t.after(() => {
-    if (saved === undefined) delete process.env.TADABBUR_TRANSLATOR_KEY;
-    else process.env.TADABBUR_TRANSLATOR_KEY = saved;
+    if (savedGoogleKey === undefined) delete process.env.GOOGLE_TRANSLATE_API_KEY;
+    else process.env.GOOGLE_TRANSLATE_API_KEY = savedGoogleKey;
   });
   t.mock.method(globalThis, 'fetch', async (input, options) => {
     const url = new URL(input);
-    assert.equal(url.searchParams.get('to'), 'en');
-    assert.equal(url.searchParams.get('from'), null);
-    assert.deepEqual(JSON.parse(options.body), [{ Text: 'Hola' }]);
-    return Response.json([{ detectedLanguage: { language: 'es' }, translations: [{ text: 'Hello' }] }]);
+    assert.equal(url.origin, 'https://translation.googleapis.com');
+    assert.equal(url.searchParams.get('key'), 'google-test-key');
+    assert.deepEqual(JSON.parse(options.body), { q: 'Hola', target: 'en', format: 'text' });
+    return Response.json({ data: { translations: [{ translatedText: 'Hello', detectedSourceLanguage: 'es' }] } });
   });
   assert.deepEqual(await invoke('post', 'translate', { body: { text: 'Hola', target: 'en' } }), { text: 'Hello', detected: 'es' });
+});
+
+test('Typed translation reports Google failures without using another provider', async t => {
+  const savedGoogleKey = process.env.GOOGLE_TRANSLATE_API_KEY;
+  process.env.GOOGLE_TRANSLATE_API_KEY = 'google-test-key';
+  t.after(() => {
+    if (savedGoogleKey === undefined) delete process.env.GOOGLE_TRANSLATE_API_KEY;
+    else process.env.GOOGLE_TRANSLATE_API_KEY = savedGoogleKey;
+  });
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 503 }));
+  await assert.rejects(
+    invoke('post', 'translate', { body: { text: 'Hola', target: 'en' } }),
+    { status: 502, message: 'Google Cloud Translation is unavailable. Check its API key, billing, quota, and network access.' }
+  );
+  assert.equal(fetch.mock.callCount(), 1);
   await assert.rejects(invoke('post', 'translate', { body: { text: '   ', target: 'en' } }), { status: 400 });
   assert(!routes.has('post /rooms/:id/study/captions'));
+});
+
+test('Typed translation reports missing Google configuration', async t => {
+  const savedGoogleKey = process.env.GOOGLE_TRANSLATE_API_KEY;
+  delete process.env.GOOGLE_TRANSLATE_API_KEY;
+  t.after(() => {
+    if (savedGoogleKey === undefined) delete process.env.GOOGLE_TRANSLATE_API_KEY;
+    else process.env.GOOGLE_TRANSLATE_API_KEY = savedGoogleKey;
+  });
+  await assert.rejects(
+    invoke('post', 'translate', { body: { text: 'Hola', target: 'en' } }),
+    { status: 503, message: 'Google Cloud Translation is not configured. Add GOOGLE_TRANSLATE_API_KEY to the backend environment.' }
+  );
 });
 
 test('Document deletion is scoped to the room and requires ownership or host rights', async t => {

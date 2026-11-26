@@ -50,33 +50,41 @@ export function publicStudy(room) {
       ? [{ owner, mode: entry.mode === 'follow' && entry.document === state.document?.id ? 'follow' : 'browse' }]
       : []
   );
-  return { ...state, readers, translationAvailable: Boolean(process.env.TADABBUR_TRANSLATOR_KEY) };
+  return {
+    ...state, readers,
+    translationAvailable: Boolean(process.env.GOOGLE_TRANSLATE_API_KEY?.trim())
+  };
+}
+
+async function translateWithGoogle(text, target, source, html) {
+  const key = process.env.GOOGLE_TRANSLATE_API_KEY?.trim();
+  if (!key) throw new Error('Google Cloud Translation is not configured.');
+  const params = new URLSearchParams({ key });
+  const reply = await fetch('https://translation.googleapis.com/language/translate/v2?' + params, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ q: text, target, ...(source ? { source } : {}), format: html ? 'html' : 'text' }),
+    signal: AbortSignal.timeout(9000)
+  });
+  if (reply.status === 401 || reply.status === 403) throw problem(503, 'Google Cloud Translation rejected its API key or project configuration.');
+  if (reply.status === 429) throw problem(429, 'Google Cloud Translation quota reached.');
+  if (!reply.ok) throw new Error('Google Cloud Translation request failed.');
+  const result = await reply.json();
+  const translation = result?.data?.translations?.[0];
+  if (!translation?.translatedText) throw new Error('Google Cloud Translation response was empty.');
+  return { text: translation.translatedText, detected: translation.detectedSourceLanguage || source || null };
 }
 
 async function translateText(text, target, source, html = false) {
   if (target === source) return { text, detected: source };
-  const key = process.env.TADABBUR_TRANSLATOR_KEY?.trim();
-  if (!key) throw problem(503, 'Microsoft Translator is not configured for this room.');
-  const headers = { 'Content-Type': 'application/json', 'Ocp-Apim-Subscription-Key': key };
-  const region = process.env.TADABBUR_TRANSLATOR_REGION?.trim().toLowerCase();
-  if (region && region !== 'global') headers['Ocp-Apim-Subscription-Region'] = region;
+  if (!process.env.GOOGLE_TRANSLATE_API_KEY?.trim()) {
+    throw problem(503, 'Google Cloud Translation is not configured. Add GOOGLE_TRANSLATE_API_KEY to the backend environment.');
+  }
   try {
-    const params = new URLSearchParams({ 'api-version': '3.0', to: target });
-    if (source) params.set('from', source);
-    if (html) params.set('textType', 'html');
-    const reply = await fetch('https://api.cognitive.microsofttranslator.com/translate?' + params, {
-      method: 'POST', headers, body: JSON.stringify([{ Text: text }]), signal: AbortSignal.timeout(9000)
-    });
-    if (reply.status === 401 || reply.status === 403) throw problem(503, 'Microsoft Translator rejected its key or region.');
-    if (reply.status === 429) throw problem(429, 'Translation quota reached. Try again later.');
-    if (!reply.ok) throw new Error('Translation request failed');
-    const [result] = await reply.json();
-    const output = result?.translations?.[0]?.text;
-    if (!output) throw new Error('Translation response was empty');
-    return { text: output, detected: result.detectedLanguage?.language || source || null };
+    return await translateWithGoogle(text, target, source, html);
   } catch (error) {
     if (error.status) throw error;
-    throw problem(502, 'Translation is temporarily unavailable.');
+    throw problem(502, 'Google Cloud Translation is unavailable. Check its API key, billing, quota, and network access.');
   }
 }
 
