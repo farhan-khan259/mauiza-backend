@@ -6,6 +6,7 @@ import mongoose from 'mongoose';
 import nodemailer from 'nodemailer';
 import { authenticateRoomSocket, setRoomNotifier, tadabburRouter } from './tadabbur/router.js';
 import { createNearbyPlacesHandlers } from './services/nearbyPlaces.js';
+import { validateContactPhone } from './services/contactPhone.js';
 
 dotenv.config();
 
@@ -496,6 +497,9 @@ const contactSchema = new mongoose.Schema({
 const registrationSchema = new mongoose.Schema({
   fullName: String,
   email: String,
+  phoneCountryCode: String,
+  phoneNumber: String,
+  phone: String,
   country: String,
   ageGroup: String,
   gender: String,
@@ -513,6 +517,9 @@ const registrationSchema = new mongoose.Schema({
 const volunteerSchema = new mongoose.Schema({
   fullName: String,
   email: String,
+  phoneCountryCode: String,
+  phoneNumber: String,
+  phone: String,
   country: String,
   profession: String,
   designation: String,
@@ -636,6 +643,8 @@ app.post('/api/contact', async (req, res) => {
 
 app.post('/api/registration', async (req, res) => {
   try {
+    const contactPhone = validateContactPhone(req.body);
+    if (!contactPhone) return res.status(400).json({ message: 'Please enter a valid contact number.' });
     const {
       fullName,
       email,
@@ -676,6 +685,7 @@ app.post('/api/registration', async (req, res) => {
     const saved = await RegistrationEntry.create({
       fullName: cleanedFullName,
       email: cleanedEmail,
+      ...contactPhone,
       country: cleanedCountry,
       ageGroup: cleanedAgeGroup,
       gender: cleanedGender,
@@ -692,6 +702,7 @@ app.post('/api/registration', async (req, res) => {
     const emailText = [
       `Full Name: ${cleanedFullName}`,
       `Email: ${email}`,
+      `Contact Number: ${contactPhone.phone}`,
       `Country: ${country}`,
       `Age Group: ${ageGroup}`,
       `Gender: ${gender}`,
@@ -713,6 +724,7 @@ app.post('/api/registration', async (req, res) => {
           <h3>New Registration</h3>
           <p><strong>Full Name:</strong> ${cleanedFullName}</p>
           <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Contact Number:</strong> ${contactPhone.phone}</p>
           <p><strong>Country:</strong> ${country}</p>
           <p><strong>Age Group:</strong> ${ageGroup}</p>
           <p><strong>Gender:</strong> ${gender}</p>
@@ -738,6 +750,8 @@ app.post('/api/registration', async (req, res) => {
 
 app.post('/api/volunteers', async (req, res) => {
   try {
+    const contactPhone = validateContactPhone(req.body);
+    if (!contactPhone) return res.status(400).json({ message: 'Please enter a valid contact number.' });
     const {
       fullName,
       name,
@@ -785,6 +799,7 @@ app.post('/api/volunteers', async (req, res) => {
     const cleaned = Object.fromEntries(Object.entries({
       fullName: cleanedFullName,
       email,
+      ...contactPhone,
       country,
       profession,
       designation,
@@ -810,6 +825,7 @@ app.post('/api/volunteers', async (req, res) => {
       '',
       `Full Name: ${cleaned.fullName}`,
       `Email: ${cleaned.email}`,
+      `Contact Number: ${cleaned.phone}`,
       `Country: ${cleaned.country}`,
       `Profession: ${cleaned.profession}`,
       `Designation: ${cleaned.designation}`,
@@ -835,6 +851,7 @@ app.post('/api/volunteers', async (req, res) => {
           <h3>New Volunteer Application</h3>
           <p><strong>Full Name:</strong> ${cleaned.fullName}</p>
           <p><strong>Email:</strong> ${cleaned.email}</p>
+          <p><strong>Contact Number:</strong> ${cleaned.phone}</p>
           <p><strong>Country:</strong> ${cleaned.country}</p>
           <p><strong>Profession:</strong> ${cleaned.profession}</p>
           <p><strong>Designation:</strong> ${cleaned.designation}</p>
